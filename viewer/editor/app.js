@@ -200,12 +200,12 @@
     r.paths.forEach((path, pi) => { const n = G.nearest(path, p); if (n && n.dist * S.view.s <= HIT && (!best || n.dist < best.dist)) best = Object.assign({ pi }, n); });
     return best;
   }
-  function hitRegion(p) {
+  function hitRegion(p, fillOnly) {
     ctx.save(); ctx.setTransform(1, 0, 0, 1, 0, 0);
     let found = null;
     for (let i = S.regions.length - 1; i >= 0 && !found; i--) if (ctx.isPointInPath(regionPath(S.regions[i]), p.x, p.y, "evenodd")) found = S.regions[i];
     ctx.restore();
-    if (!found) for (const r of S.regions) if (hitLine(r, p)) { found = r; break; }
+    if (!found && !fillOnly) for (const r of S.regions) if (hitLine(r, p)) { found = r; break; }
     return found;
   }
   function inside(r, p) {                                    // is the point in the shaded part of region r?
@@ -282,13 +282,13 @@
       const l = hitLine(sel, p);
       if (l) { pushUndo(); S.drag = { kind: "bend", pi: l.pi, seg: l.seg, t: l.t, last: p, moved: false }; return; }
     }
-    const r = hitRegion(p);
+    const h = hitHole(p);                                      // inside a hole counts as the hole, even right next to its edge
+    const r = hitRegion(p, true) || (h ? null : hitRegion(p));
     if (r) {
       if (r.id !== S.selected || S.hole) { S.selected = r.id; S.hole = null; refresh(); }
       pushUndo(); S.drag = { kind: "move", last: p, moved: false }; return;
     }
-    const h = hitHole(p);                                      // clicking inside a hole selects just the hole
-    if (h) {
+    if (h) {                                                   // clicking inside a hole selects just the hole
       S.selected = h.r.id; S.hole = { rid: h.r.id, pi: h.pi }; refresh();
       pushUndo(); S.drag = { kind: "movepath", pi: h.pi, last: p, moved: false }; return;
     }
@@ -725,9 +725,10 @@
   $("showModel").onchange = (e) => { S.showModel = e.target.checked; draw(); };
   $("showHeat").onchange = (e) => { S.showHeat = e.target.checked; draw(); };
   $("keysBtn").onclick = () => $("keysModal").classList.add("show");
+  $("tutBtn").onclick = () => window.Tutorial.open(); $("tutEmpty").onclick = () => window.Tutorial.open();
   document.querySelectorAll("#openTabs button").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
   document.querySelectorAll("[data-import]").forEach((b) => (b.onclick = () => doImport(b.dataset.import)));
-  document.querySelectorAll(".backdrop").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m || e.target.closest("[data-close]")) m.classList.remove("show"); }));
+  document.querySelectorAll(".backdrop").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m || e.target.closest("[data-close]")) { m.classList.remove("show"); window.Tutorial.pause(); } }));
   $("theme").onclick = () => {
     const dark = matchMedia("(prefers-color-scheme: dark)").matches, cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
     const nxt = cur === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = nxt;
@@ -744,7 +745,7 @@
       if (e.key === "Enter") openPicked(); else pickCase(Math.min(S.lib.cases.length - 1, Math.max(0, S.pick + (e.key === "ArrowDown" ? 1 : -1))));
       return;
     }
-    if (document.querySelector(".backdrop.show")) { if (e.key === "Escape") document.querySelectorAll(".backdrop.show").forEach((m) => m.classList.remove("show")); return; }
+    if (document.querySelector(".backdrop.show")) { if (e.key === "Escape") { document.querySelectorAll(".backdrop.show").forEach((m) => m.classList.remove("show")); window.Tutorial.pause(); } return; }
     if (mod && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
     if (mod) return;
     if (e.key === " ") { S.space = true; cv.style.cursor = "grab"; e.preventDefault(); return; }

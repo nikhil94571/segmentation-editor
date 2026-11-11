@@ -13,7 +13,7 @@ import uuid
 from datetime import datetime
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import unquote, parse_qs, urlparse
 
 import editor_backend as eb
 
@@ -101,7 +101,32 @@ class Handler(SimpleHTTPRequestHandler):
                                 float(q.get("t", ["0.5"])[0]))
         elif not path.startswith(("/out/", "/viewer/", "/sessions/", "/exports/")) or "/_uploads/" in path:
             return self.send_error(404)
+        if path.endswith(".mp4") and self.headers.get("Range"):
+            return self._ranged(path)
         return super().do_GET()
+
+    def _ranged(self, path):
+        """Part of a video file (Safari will not play a video unless byte ranges work)."""
+        f = (ROOT / unquote(path).lstrip("/")).resolve()
+        m = re.match(r"bytes=(\d*)-(\d*)$", self.headers["Range"].strip())
+        if not m or ROOT not in f.parents or not f.is_file() or not (m.group(1) or m.group(2)):
+            return self.send_error(404)
+        size = f.stat().st_size
+        if m.group(1):
+            a, b = int(m.group(1)), min(size - 1, int(m.group(2))) if m.group(2) else size - 1
+        else:
+            a, b = max(0, size - int(m.group(2))), size - 1
+        if a > b:
+            return self.send_error(416)
+        self.send_response(206)
+        self.send_header("Content-Type", "video/mp4")
+        self.send_header("Accept-Ranges", "bytes")
+        self.send_header("Content-Range", f"bytes {a}-{b}/{size}")
+        self.send_header("Content-Length", str(b - a + 1))
+        self.end_headers()
+        with open(f, "rb") as fh:
+            fh.seek(a)
+            self.wfile.write(fh.read(b - a + 1))
 
     def do_POST(self):
         url = urlparse(self.path)

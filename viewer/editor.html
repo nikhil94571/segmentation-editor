@@ -258,6 +258,43 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 .prog { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; margin: 14px 0 6px; }
 .prog i { display: block; height: 100%; width: 0%; background: var(--accent); border-radius: 4px; transition: width .25s ease; }
 .prog-t { display: flex; justify-content: space-between; font-size: var(--fs-small); color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+
+/* ---- tutorial ---- */
+.modal.tut { width: 1060px; height: calc(100vh - 40px); }
+.tut-sub { font-size: var(--fs-small); color: var(--ink-mute); margin-top: 2px; }
+.tut-b { display: grid; grid-template-columns: 218px 1fr; min-height: 0; flex: 1; }
+.tut-nav { overflow-y: auto; padding: 14px 10px 18px 14px; border-right: 1px solid var(--line-soft); }
+.tut-nav h5 { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-mute); margin: 14px 8px 5px; }
+.tut-nav h5:first-child { margin-top: 2px; }
+.tut-nav button { display: flex; gap: 8px; width: 100%; text-align: left; padding: 6px 8px; border-radius: 10px; font-size: var(--fs-small); color: var(--ink-soft); line-height: 1.3; }
+.tut-nav button:hover { background: var(--bg); color: var(--ink); }
+.tut-nav button.on { background: var(--sel); color: var(--sel-ink); box-shadow: var(--sel-edge); }
+.tut-nav button i { font-style: normal; font-family: var(--font-mono); font-size: var(--fs-label); opacity: .6; min-width: 16px; padding-top: 1px; }
+.tut-main { overflow-y: auto; padding: 6px 30px 60px; scroll-behavior: smooth; }
+.tut-chap { font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--accent); margin: 30px 0 0; }
+.tut-chap span { display: block; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: var(--fs-small); color: var(--ink-mute); margin-top: 3px; }
+.tstep { padding: 20px 0 6px; scroll-margin-top: 4px; }
+.tstep + .tut-chap { margin-top: 38px; padding-top: 26px; border-top: 1px solid var(--line-soft); }
+.tstep-h { display: flex; align-items: center; gap: 11px; margin-bottom: 7px; }
+.tnum { flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%; display: grid; place-items: center; background: var(--primary); color: var(--primary-ink);
+  font-family: var(--font-mono); font-size: var(--fs-small); font-weight: 600; }
+.tstep h4 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+.tstep p { font-size: 15.5px; line-height: 1.55; color: var(--ink-soft); max-width: 680px; margin: 0 0 4px 37px; }
+.tstep p b { color: var(--ink); font-weight: 600; }
+.tstep p kbd { font-size: 12px; padding: 1px 6px; border-radius: 5px; color: var(--ink); }
+.tstep p.tip { font-size: var(--fs-small); color: var(--ink-mute); margin-top: 6px; }
+.tclip { margin: 14px 0 0 37px; }
+.tclip + .tclip { margin-top: 20px; }
+.tclip .cap { font-size: var(--fs-small); font-weight: 600; color: var(--ink); margin-bottom: 7px; }
+.tclip .cap span { font-weight: 400; color: var(--ink-soft); }
+.tvid { position: relative; border-radius: 16px; overflow: hidden; background: var(--canvas); border: 1px solid var(--line); box-shadow: var(--shadow-md); cursor: pointer; }
+.tvid video { display: block; width: 100%; height: 100%; object-fit: cover; }
+.tvid .pp { position: absolute; right: 10px; bottom: 10px; width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; background: rgba(20,22,46,.62); color: #fff;
+  opacity: 0; transition: opacity .15s; -webkit-backdrop-filter: blur(6px); backdrop-filter: blur(6px); }
+.tvid:hover .pp, .tvid.paused .pp { opacity: 1; }
+.tvid .pp svg { width: 15px; height: 15px; fill: currentColor; }
+.tut-end { margin: 40px 0 0 37px; padding: 16px 18px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line-soft); font-size: var(--fs-body); color: var(--ink-soft); line-height: 1.5; max-width: 680px; }
+@media (max-width: 860px) { .tut-b { grid-template-columns: 1fr; } .tut-nav { display: none; } .tut-main { padding: 6px 18px 50px; } .tstep p, .tclip, .tut-end { margin-left: 0; } }
 </style>
 </head>
 <body>
@@ -280,6 +317,7 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
     <button class="icon-btn" id="zoomIn" title="Zoom in (+)"><svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg></button>
     <button class="btn" id="fit" title="Fit image (0)">Fit</button>
     <span class="divider"></span>
+    <button class="btn" id="tutBtn" title="Tutorial: short clips of every action">Tutorial<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M10 8.5v7l6-3.5z"/></svg></button>
     <button class="btn" id="keysBtn" title="Keyboard shortcuts (?)">Shortcuts<svg viewBox="0 0 24 24"><rect x="3" y="6" width="18" height="12" rx="2"/><path d="M7 10h.01M11 10h.01M15 10h.01M8 14h8"/></svg></button>
     <button class="icon-btn" id="theme" title="Light / dark"><svg viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9 7 7 0 0 1-9-9z"/></svg></button>
     <button class="btn" id="open">Open…</button>
@@ -297,6 +335,7 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
       <h2>Open an image to correct</h2>
       <p>Open a library of images, or a single image file, ImageJ file or model output. Regions become curves you can bend, move, redraw or delete.</p>
       <button class="btn primary" id="openEmpty">Open…</button>
+      <p style="margin:14px auto 0">New here? <button class="link" id="tutEmpty" type="button">Watch the tutorial</button></p>
     </div></div>
     <div class="toast" id="toast"></div>
   </main>
@@ -383,7 +422,14 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
   </div></div>
 </div></div>
 
+<div class="backdrop" id="tutModal"><div class="modal tut">
+  <div class="modal-h"><div><h3>Tutorial</h3><p class="tut-sub">Short clips of everything you can do. Scroll down, or jump to a part on the left.</p></div>
+    <button class="icon-btn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="tut-b"><nav class="tut-nav" id="tutNav"></nav><div class="tut-main" id="tutMain"></div></div>
+</div></div>
+
 <script src="/viewer/editor/geom.js"></script>
+<script src="/viewer/editor/tutorial.js"></script>
 <script src="/viewer/editor/app.js"></script>
 </body>
 </html>
