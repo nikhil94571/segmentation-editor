@@ -116,6 +116,14 @@
     window.__shot = true; await wait(1500); window.__shot = false;
     E.pickCase(target); await wait(2500);
     out.second_click_opens = { index: S.caseIndex, expected: target, dialog_closed: !document.getElementById("openModal").classList.contains("show") };
+    // 16. done mark: marks this image and moves to the next unfinished one
+    const dIdx = S.caseIndex; await E.toggleDone(); await wait(2500);
+    out.done_mark = { was_marked: S.lib.cases[dIdx].done === true, moved_to: [dIdx, S.caseIndex], button_now: document.getElementById("doneLabel").textContent };
+    document.getElementById("prevCase").click(); await wait(100);
+    // 17. export the whole library
+    await E.exportLibrary(S.lib.id, S.lib.name); await wait(500);
+    out.library_export = document.getElementById("exportBody").innerText.replace(/\s+/g, " ").slice(0, 150);
+    document.getElementById("exportModal").classList.remove("show");
     out.header_order = [...document.querySelector(".topbar").children].slice(0, 3).map((x) => x.id || x.className);
     out.conf_head = document.getElementById("confHead").textContent;
   } catch (e) { out.ERROR = String(e && e.stack || e); }

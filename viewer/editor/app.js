@@ -416,7 +416,9 @@
           ${row("roiset_zip", "ImageJ ROI set", "ZIP")}
           ${row("qupath_geojson", "QuPath annotations", "GEOJSON")}
         </div>
-        <p class="note">Also saved in <span class="mono">${j.dir}</span></p>`;
+        <p class="note">Also saved in <span class="mono">${j.dir}</span></p>
+        ${S.lib ? `<button class="btn" id="exportAll" style="margin-top:12px">Export all ${S.lib.cases.length} images in ${esc(S.lib.name)} instead</button>` : ""}`;
+      if ($("exportAll")) $("exportAll").onclick = () => exportLibrary(S.lib.id, S.lib.name);
     } catch (e) { $("exportBody").innerHTML = `<p class="err">${e.message}</p>`; }
   }
 
@@ -490,6 +492,9 @@
     $("caseNav").hidden = !S.lib;
     $("casePos").textContent = n ? `${S.caseIndex + 1} / ${n}` : "–";
     $("prevCase").disabled = S.caseIndex <= 0; $("nextCase").disabled = S.caseIndex >= n - 1;
+    const cur = S.lib && S.lib.cases[S.caseIndex];
+    $("doneBtn").hidden = !cur; $("doneBtn").classList.toggle("on", !!(cur && cur.done));
+    $("doneLabel").textContent = cur && cur.done ? "Done" : "Mark done";
     $("prevCase").title = S.lib ? `Previous image in ${S.lib.name} ( [ )` : ""; $("nextCase").title = S.lib ? `Next image in ${S.lib.name} ( ] )` : "";
   }
   /* Make a library the current one and open one of its images. */
@@ -498,6 +503,35 @@
     if (index == null) index = +(store.get("seg-editor-idx-" + id) || 0);
     S.lib = lib; store.set("seg-editor-lib", id);
     await openCase(Math.min(Math.max(index, 0), lib.cases.length - 1));
+  }
+  /* Done mark: a finished image. Marking one done moves on to the next unfinished image. */
+  async function toggleDone() {
+    const c = S.lib && S.lib.cases[S.caseIndex]; if (!c) return;
+    try {
+      await saveNow();
+      const j = await api("/api/editor/library/done", { id: S.lib.id, index: S.caseIndex, done: !c.done });
+      c.done = j.done; renderNav();
+      if (!c.done) return;
+      const n = S.lib.cases.length; let next = -1;
+      for (let k = 1; k < n && next < 0; k++) if (!S.lib.cases[(S.caseIndex + k) % n].done) next = (S.caseIndex + k) % n;
+      if (next < 0) toast(`All ${n} images in ${S.lib.name} are done`); else await openCase(next);
+    } catch (e) { toast(e.message); }
+  }
+  async function exportLibrary(id, name) {
+    $("openModal").classList.remove("show");
+    $("exportBody").innerHTML = `<p class="note">Exporting every image in ${esc(name)}… this takes about a second per image.</p>`;
+    $("exportModal").classList.add("show");
+    try {
+      await saveNow();
+      const j = await api("/api/editor/library/export", { id });
+      $("exportBody").innerHTML = `
+        <p class="note" style="margin:0 0 12px">${j.images} image${j.images === 1 ? "" : "s"} exported as they stand now: ${j.edited} edited, ${j.done} marked done.
+        Lowest ImageJ read-back match: IoU <b class="mono">${j.min_iou.toFixed(4)}</b>.</p>
+        <div class="files"><a href="${j.zip}" download><span>Everything, in one file</span><span>ZIP</span></a></div>
+        <p class="note">Inside: <span class="mono">masks/</span>, <span class="mono">shaded/</span>, <span class="mono">imagej/</span>, <span class="mono">roisets/</span>, <span class="mono">qupath/</span>
+        and <span class="mono">summary.csv</span> (one row per image, with its done and edited status).</p>
+        <p class="note">Also saved in <span class="mono">${esc(j.dir)}</span></p>`;
+    } catch (e) { $("exportBody").innerHTML = `<p class="err">${esc(e.message)}</p>`; }
   }
   let opening = false;
   async function openCase(i) {
@@ -516,6 +550,7 @@
   async function showOpen() {
     $("openModal").classList.add("show"); $("importErr").textContent = ""; $("libErr").textContent = "";
     S.pick = null; $("preview").hidden = true;
+    if (S.lib) { try { await saveNow(); S.lib = await api("/api/editor/library?id=" + encodeURIComponent(S.lib.id)); } catch (e) {} }
     await renderLibraries();
   }
   /* First click on an image selects it and shows a preview; clicking it again (or Enter) opens it. */
@@ -542,18 +577,20 @@
     $("libList").innerHTML = j.libraries.length ? j.libraries.map((l) => `
       <div class="li ${l.id === cur ? "current" : ""}" data-lib="${esc(l.id)}">
         <span class="q-name" data-name>${esc(l.name)}</span>
-        <span class="meta">${l.count} image${l.count === 1 ? "" : "s"}${l.edited ? ` · ${l.edited} edited` : ""}</span>
+        <span class="meta">${l.count} image${l.count === 1 ? "" : "s"}${l.done ? ` · ${l.done} done` : ""}${l.edited ? ` · ${l.edited} edited` : ""}</span>
         ${l.id === cur ? '<span class="tag cur">Working on this</span>' : '<button class="btn" data-act="use">Work on this</button>'}
+        <button class="btn" data-act="export">Export</button>
         <button class="btn" data-act="rename">Rename</button>
         <button class="btn danger" data-act="delete">Delete</button>
-      </div>${l.id === cur ? `<div class="cases">${S.lib.cases.map((c, i) => `<button class="${i === S.caseIndex ? "on" : ""} ${i === S.pick ? "sel" : ""}" data-case="${i}"><span class="q-name">${esc(c.name)}</span>${c.edited ? '<span class="tag">edited</span>' : ""}</button>`).join("")}</div>` : ""}`).join("")
+      </div>${l.id === cur ? `<div class="cases">${S.lib.cases.map((c, i) => `<button class="${i === S.caseIndex ? "on" : ""} ${i === S.pick ? "sel" : ""}" data-case="${i}"><span class="q-name">${esc(c.name)}</span>${c.done ? '<span class="tag done">done</span>' : c.edited ? '<span class="tag">edited</span>' : ""}</button>`).join("")}</div>` : ""}`).join("")
       : '<p class="note">No libraries yet. Import a folder of images below.</p>';
     $("libList").querySelectorAll("[data-case]").forEach((b) => (b.onclick = () => pickCase(+b.dataset.case)));
     if (S.pick == null) $("preview").hidden = true;
     $("libList").querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
       const row = b.closest("[data-lib]"), id = row.dataset.lib, act = b.dataset.act;
       try {
-        if (act === "use") { $("libErr").textContent = "Opening…"; await useLibrary(id); $("openModal").classList.remove("show"); }
+        if (act === "export") await exportLibrary(id, row.querySelector("[data-name]").textContent);
+        else if (act === "use") { $("libErr").textContent = "Opening…"; await useLibrary(id); $("openModal").classList.remove("show"); }
         else if (act === "rename") {
           const span = row.querySelector("[data-name]"), inp = document.createElement("input");
           inp.type = "text"; inp.value = span.textContent; inp.style.flex = "1"; span.replaceWith(inp); inp.focus(); inp.select();
@@ -655,7 +692,7 @@
 
   /* ---------------- wiring ---------------- */
   $("prevCase").onclick = () => openCase(S.caseIndex - 1); $("nextCase").onclick = () => openCase(S.caseIndex + 1);
-  wireLibraryDrop();
+  wireLibraryDrop(); $("doneBtn").onclick = toggleDone;
   $("open").onclick = showOpen; $("openEmpty").onclick = showOpen; $("export").onclick = doExport;
   $("undo").onclick = undo; $("redo").onclick = redo;
   $("zoomIn").onclick = () => zoomAt(1.25); $("zoomOut").onclick = () => zoomAt(0.8); $("fit").onclick = fitView;
@@ -689,6 +726,7 @@
     if (e.key === " ") { S.space = true; cv.style.cursor = "grab"; e.preventDefault(); return; }
     if (k === "v") setTool("edit"); else if (k === "p") setTool("draw");
     else if (k === "n") step(e.shiftKey ? -1 : 1);
+    else if (k === "d") toggleDone();
     else if (k === "m") { S.showModel = !S.showModel; $("showModel").checked = S.showModel; draw(); }
     else if (k === "h" && S.meta && S.meta.has_prob) { S.showHeat = !S.showHeat; $("showHeat").checked = S.showHeat; draw(); }
     else if (k === "+" || k === "=") zoomAt(1.25); else if (k === "-") zoomAt(0.8); else if (k === "0") fitView();
@@ -708,6 +746,6 @@
   const q = new URLSearchParams(location.search), wantLib = q.get("lib") || store.get("seg-editor-lib");
   if (wantLib) window.__ready = useLibrary(wantLib, q.has("i") ? +q.get("i") : null).catch(() => closeImage());
   renderNav();
-  window.__editor = { S, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, doExport, setTool, step, undo, region, inside };   // for selftest.js
+  window.__editor = { S, toggleDone, exportLibrary, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, doExport, setTool, step, undo, region, inside };   // for selftest.js
   if (new URLSearchParams(location.search).has("selftest")) { const sc = document.createElement("script"); sc.src = "/viewer/editor/selftest.js"; document.body.appendChild(sc); }
 })();

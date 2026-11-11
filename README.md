@@ -43,12 +43,17 @@ An easier alternative to correcting outlines in ImageJ.
   one case per image: image + probability map or mask, a shaded image, an ImageJ .tif, or an image + RoiSet. Step
   through with the previous/next buttons in the top bar (`[` and `]`); each image is saved as you leave it. Libraries
   can be renamed, deleted, or switched ("Work on this"). The 15 practice cases are the built-in "Practice cases" library.
-- **Single file:** Open → Single file takes one image file (shaded), ImageJ file, or model output; it joins the
-  "Single imports" library.
+- **Preview, done, export all:** in the library list, one click previews an image beside the dialog and a second
+  click (or Enter) opens it. "Mark done" (D) marks the image finished and moves to the next unfinished one. Each
+  library has an Export button that writes every image as it stands to `exports/<library>-<time>/` (`masks/`,
+  `shaded/`, `imagej/`, `roisets/`, `qupath/`, `summary.csv`) plus one .zip.
+- **Single file:** Open → Single file takes one image file (shaded, or an ImageJ .tif with its outlines inside),
+  an image + separate outlines, or model output; it joins the "Single imports" library.
 - **Shapes:** each region is a few nodes joined by lines you bend by dragging the line itself (cubic Béziers,
   fitted with Schneider's algorithm; corners kept).
 - **Edit (V):** drag a node, drag the line to bend it, drag inside a region to move all of it, double-click a line
-  to add a node or a node to remove it, Delete removes the region.
+  to add a node or a node to remove it, Delete removes the region. Clicking inside a hole selects just the hole
+  (Delete removes it, dragging moves it).
 - **Draw (P):** press-drag-release draws; press the open end to continue; finish on the first node to close; drag back
   along your line to un-draw; Backspace removes the last node. A shape drawn **inside** a region cuts a hole in it.
   A stroke that starts and ends on an outline **reroutes** that stretch (grows or shrinks the region, or a hole).

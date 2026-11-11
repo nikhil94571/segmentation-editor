@@ -95,7 +95,7 @@ class Handler(SimpleHTTPRequestHandler):
         elif path == "/api/editor/rethreshold":
             return self._editor(eb.rethreshold, q.get("id", [""])[0], int(q.get("label", ["0"])[0]),
                                 float(q.get("t", ["0.5"])[0]))
-        elif not path.startswith(("/out/", "/viewer/", "/sessions/")) or "/_uploads/" in path:
+        elif not path.startswith(("/out/", "/viewer/", "/sessions/", "/exports/")) or "/_uploads/" in path:
             return self.send_error(404)
         return super().do_GET()
 
@@ -127,6 +127,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._editor(eb.rename_library, body.get("id", ""), body.get("name", ""))
         if url.path == "/api/editor/library/delete":
             return self._editor(eb.delete_library, body.get("id", ""))
+        if url.path == "/api/editor/library/done":
+            return self._editor(eb.set_done, body.get("id", ""), int(body.get("index", 0)), bool(body.get("done")))
+        if url.path == "/api/editor/library/export":
+            return self._editor(eb.export_library, body.get("id", ""))
         if url.path == "/api/editor/library/open":
             return self._editor(eb.open_library_case, body.get("id", ""), int(body.get("index", 0)))
         if url.path == "/api/editor/selftest":            # results of viewer/editor/selftest.js

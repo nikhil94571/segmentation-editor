@@ -53,6 +53,9 @@ button:disabled { opacity: .4; cursor: default; }
 .brand { font-weight: 600; letter-spacing: -0.01em; white-space: nowrap; }
 .session { flex: 0 1 auto; font-family: var(--font-mono); font-size: var(--fs-small); color: var(--ink-soft); background: var(--bg);
   border: 1px solid var(--line-soft); border-radius: 7px; padding: 4px 9px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.done-btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.done-btn.on { background: var(--ok-tint); border-color: var(--ok); color: var(--ok); }
+.tag.done { color: var(--ok); border-color: var(--ok); }
 .casenav { display: inline-flex; align-items: center; gap: 2px; }
 .casenav .zoom { min-width: 58px; }
 .spacer { flex: 1; }
@@ -198,6 +201,7 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block
       <button class="icon-btn" id="nextCase" title="Next image ( ] )"><svg viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></svg></button>
     </span>
     <span class="session" id="sessionName">No image open</span>
+    <button class="btn done-btn" id="doneBtn" hidden title="Mark this image done and go to the next unfinished one (D)"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg><span id="doneLabel">Mark done</span></button>
     <span class="spacer"></span>
     <span class="saved" id="saved"></span>
     <button class="icon-btn" id="undo" title="Undo (⌘Z)"><svg viewBox="0 0 24 24"><path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/></svg></button>
@@ -297,6 +301,7 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block
   <div class="modal-b"><div class="keys">
     <span><kbd>V</kbd> <kbd>P</kbd></span><span>Edit tool, Draw tool</span>
     <span><kbd>[</kbd> <kbd>]</kbd></span><span>Previous, next image in the library</span>
+    <span><kbd>D</kbd></span><span>Mark the image done (and go to the next unfinished one)</span>
     <span><kbd>N</kbd> <kbd>⇧N</kbd></span><span>Next, previous region (least confident first)</span>
     <span><kbd>Delete</kbd></span><span>Remove the selected region. While drawing: remove the last node</span>
     <span><kbd>Enter</kbd> <kbd>Esc</kbd></span><span>Close the shape being drawn, cancel it</span>

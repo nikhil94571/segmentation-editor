@@ -528,14 +528,16 @@ def list_libraries():
     for f in sorted(LIBS.glob("*/library.json"), key=lambda p: p.stat().st_ctime):
         lib = json.loads(f.read_text())
         out.append({"id": lib["id"], "name": lib["name"], "created": lib.get("created", ""),
-                    "count": len(lib["cases"]), "edited": sum(_edited(c) for c in lib["cases"])})
+                    "count": len(lib["cases"]), "edited": sum(_edited(c) for c in lib["cases"]),
+                    "done": sum(bool(c.get("done")) for c in lib["cases"])})
     return {"libraries": out}
 
 
 def get_library(lid):
     lib = _read_lib(lid)
     return {"id": lib["id"], "name": lib["name"],
-            "cases": [{"name": c["name"], "route": c["route"], "edited": _edited(c)} for c in lib["cases"]]}
+            "cases": [{"name": c["name"], "route": c["route"], "edited": _edited(c), "done": bool(c.get("done"))}
+                      for c in lib["cases"]]}
 
 
 def rename_library(lid, name):
@@ -585,9 +587,8 @@ def add_single(meta):
 
 # ---------- previews ----------
 
-def _state_rings(state):
+def _state_rings(state, step=1.0):
     """The editor's saved curves, flattened to polygons: [[ring, ...] per region]."""
-    t = np.linspace(0, 1, 10, endpoint=False)[:, None]
     out = []
     for r in state.get("regions", []):
         rings = []
@@ -597,6 +598,8 @@ def _state_rings(state):
                 a, b = n[i], n[(i + 1) % len(n)]
                 p0, c1 = np.array([a["x"], a["y"]]), np.array([sg["c1"]["x"], sg["c1"]["y"]])
                 c2, p3 = np.array([sg["c2"]["x"], sg["c2"]["y"]]), np.array([b["x"], b["y"]])
+                length = np.linalg.norm(c1 - p0) + np.linalg.norm(c2 - c1) + np.linalg.norm(p3 - c2)
+                t = np.linspace(0, 1, int(min(200, max(4, np.ceil(length / step)))), endpoint=False)[:, None]
                 pts.append((1 - t) ** 3 * p0 + 3 * (1 - t) ** 2 * t * c1 + 3 * (1 - t) * t ** 2 * c2 + t ** 3 * p3)
             if pts:
                 rings.append(np.vstack(pts))
@@ -617,7 +620,7 @@ def case_preview(lid, index, size=460):
     if sd and (sd / "meta.json").exists():
         base = Image.open(sd / "tissue.png").convert("RGB")
         if (sd / "state.json").exists():
-            regions = _state_rings(json.loads((sd / "state.json").read_text()))
+            regions = _state_rings(json.loads((sd / "state.json").read_text()), step=6)
         else:
             regions = [[np.asarray(r, float) for r in reg["rings"]] for reg in json.loads((sd / "meta.json").read_text())["regions"]]
     else:
@@ -650,3 +653,51 @@ def case_preview(lid, index, size=460):
     buf = io.BytesIO()
     out.save(buf, "JPEG", quality=86)
     return buf.getvalue()
+
+
+def set_done(lid, index, done):
+    lib = _read_lib(lid)
+    if not 0 <= index < len(lib["cases"]):
+        raise ValueError("No such image in this library.")
+    lib["cases"][index]["done"] = bool(done)
+    _write_lib(lib)
+    return {"ok": True, "done": bool(done)}
+
+
+def export_library(lid):
+    """Export every image of a library as it stands (saved edits, else the imported regions) into
+    exports/<library>-<time>/, sorted by file type, with a summary.csv and a .zip of the lot."""
+    import csv
+    lib = _read_lib(lid)
+    out = ROOT / "exports" / f"{_slug(lib['name'])}-{time.strftime('%Y%m%d-%H%M%S')}"
+    folders = {"mask_png": "masks", "overlay_png": "shaded", "imagej_tif": "imagej", "roiset_zip": "roisets",
+               "qupath_geojson": "qupath"}
+    for d in folders.values():
+        (out / d).mkdir(parents=True, exist_ok=True)
+    rows = []
+    for i, c in enumerate(lib["cases"]):
+        sid = open_library_case(lid, i)["id"]
+        sd = _sdir(sid)
+        edited = (sd / "state.json").exists()
+        if edited:
+            state = json.loads((sd / "state.json").read_text())
+            regions = [{"name": r["name"], "rings": [x.tolist() for x in rings]}
+                       for r, rings in zip(state["regions"], _state_rings(state))]
+        else:
+            regions = [{"name": r["name"], "rings": r["rings"]} for r in json.loads((sd / "meta.json").read_text())["regions"]]
+        stem = f"{i + 1:03d}_{_slug(c['name'])}"
+        r = export(sid, regions, stem)
+        for key, url in r["files"].items():
+            src = sd / "export" / Path(url).name
+            shutil.copy(src, out / folders[key] / src.name)
+        rows.append({"image": c["name"], "file_stem": stem, "regions": r["regions"], "mask_px": r["mask_px"],
+                     "edited": "yes" if edited else "no", "done": "yes" if c.get("done") else "no",
+                     "imagej_iou": r["imagej_iou"]})
+    with open(out / "summary.csv", "w", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    archive = shutil.make_archive(str(out), "zip", root_dir=out.parent, base_dir=out.name)
+    return {"dir": str(out), "zip": f"/exports/{Path(archive).name}", "images": len(rows),
+            "done": sum(r["done"] == "yes" for r in rows), "edited": sum(r["edited"] == "yes" for r in rows),
+            "min_iou": min(r["imagej_iou"] for r in rows)}
