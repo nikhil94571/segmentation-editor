@@ -423,14 +423,14 @@
       : `Model confidence ${Math.round(r.meanProb * 100)}%`;
     let slider = "";
     if (r.label != null) {
-      slider = `<div class="slider-h"><span>Grow / shrink</span><b id="sliderVal">${sliderText(r.t)}</b></div>
+      slider = `<div class="slider-h" style="margin-top:0"><span>Grow / shrink</span><b id="sliderVal">${sliderText(r.t)}</b></div>
         <input type="range" id="slider" min="0.05" max="0.95" step="0.01" value="${r.t}">
         <div class="slider-ends"><span>Grow</span><button class="link" id="sliderReset">Reset</button><span>Shrink</span></div>
         <p class="note">${S.meta.has_prob ? "Shift the region's edge, changing most where the model was unsure."
           : "Shift the region's edge evenly in or out (this input has no probability map)."}
-          ${r.edited ? " Moving it redraws the outline and replaces your manual edits (undo brings them back)." : ""}</p>`;
+          ${r.edited ? " Deletes your edits." : ""}</p>`;
     } else slider = `<p class="note">Drawn by hand, so there is no model outline to grow or shrink.</p>`;
-    d.innerHTML = `<div class="d-name">${esc(r.name)}</div><div class="d-sub">${conf} · ${nodes} node${nodes === 1 ? "" : "s"}</div>
+    d.innerHTML = `
       ${slider}
       <div class="nav3"><button class="btn danger" id="delRegion">Delete <kbd>Del</kbd></button><button class="btn" id="navPrev">Previous</button><button class="btn" id="navNext">Next <kbd>N</kbd></button></div>`;
     $("delRegion").onclick = deleteSelected;
@@ -486,22 +486,26 @@
     } catch (e) { toast(e.message); }
   }
   /* Export: choose what (this image or a whole library) and where, then confirm. */
+  const FORMATS = [["mask_png", "Mask (PNG)"], ["overlay_png", "Shaded image (PNG)"], ["imagej_tif", "ImageJ image with regions (TIF)"],
+    ["roiset_zip", "ImageJ ROI set (ZIP)"], ["qupath_geojson", "QuPath annotations (GeoJSON)"]];
   const tilde = (p, home) => (home && p.startsWith(home) ? "~" + p.slice(home.length) : p);
   async function showExport(scope, libId, libName) {
     const lib = libId ? { id: libId, name: libName } : S.lib ? { id: S.lib.id, name: S.lib.name, n: S.lib.cases.length } : null;
     scope = scope || (S.sid ? "image" : "library");
     $("openModal").classList.remove("show");
     let st; try { st = await api("/api/editor/settings"); } catch (e) { toast(e.message); return; }
-    let dest = st.export_dir;
+    let dest = st.export_dir, fmts = FORMATS.map((f) => f[0]);
+    try { const saved = JSON.parse(store.get("seg-editor-formats") || "null"); if (Array.isArray(saved) && saved.length) fmts = saved; } catch (e) {}
     $("exportBody").innerHTML = `
       <div class="opts">
         <label class="opt"><input type="radio" name="exScope" value="image" ${scope === "image" ? "checked" : ""} ${S.sid ? "" : "disabled"}>
           <span><b>This image</b><span>${S.sid ? esc(S.meta.name) : "No image open"}</span></span></label>
         <label class="opt"><input type="radio" name="exScope" value="library" ${scope === "library" ? "checked" : ""} ${lib ? "" : "disabled"}>
-          <span><b>Whole library</b><span>${lib ? esc(lib.name) + (lib.n ? ` · ${lib.n} images` : "") + ", each image as it stands now" : "No library open"}</span></span></label>
+          <span><b>Whole library</b><span>${lib ? esc(lib.name) + (lib.n ? ` · ${lib.n} images` : "") : "No library open"}</span></span></label>
       </div>
       <div class="dest"><span>Save in</span><span class="path" id="exDest" title="${esc(dest)}">${esc(tilde(dest, st.home))}</span><button class="btn" id="exChoose">Choose…</button></div>
-      <p class="note">Each export goes in its own new folder there: mask and shaded PNGs, the ImageJ file, RoiSet and QuPath file.</p>
+      <div class="fmt-h">Files to write</div>
+      <div class="fmts">${FORMATS.map(([k, label]) => `<label class="check"><input type="checkbox" name="exFmt" value="${k}" ${fmts.includes(k) ? "checked" : ""}> ${label}</label>`).join("")}</div>
       <div class="err" id="exErr"></div>
       <div class="actions"><button class="btn" id="exCancel">Cancel</button><button class="btn primary" id="exGo">Export</button></div>`;
     $("exportModal").classList.add("show");
@@ -511,29 +515,47 @@
       try { const j = await api("/api/editor/choose-folder", {}); if (j.export_dir) { dest = j.export_dir; $("exDest").textContent = tilde(dest, st.home); $("exDest").title = dest; } $("exErr").textContent = ""; }
       catch (e) { $("exErr").textContent = e.message; }
     };
-    $("exGo").onclick = () => runExport(document.querySelector("input[name=exScope]:checked").value, lib, dest);
+    $("exGo").onclick = () => {
+      const chosen = [...document.querySelectorAll("input[name=exFmt]:checked")].map((x) => x.value);
+      if (!chosen.length) { $("exErr").textContent = "Tick at least one file type."; return; }
+      store.set("seg-editor-formats", JSON.stringify(chosen));
+      runExport(document.querySelector("input[name=exScope]:checked").value, lib, dest, chosen);
+    };
   }
-  async function runExport(scope, lib, dest) {
-    const body = $("exportBody");
-    body.innerHTML = `<p class="note">Exporting${scope === "library" ? " every image, about a second each" : ""}…</p>`;
+  async function runExport(scope, lib, dest, formats) {
+    const body = $("exportBody"), job = "j" + Date.now() + Math.random().toString(36).slice(2, 7);
+    body.innerHTML = `<p class="note" style="margin:0">Exporting ${scope === "library" ? esc(lib.name) : esc(S.meta.name)}…</p>
+      <div class="prog"><i id="exBar"></i></div><div class="prog-t"><span id="exCount"></span><span id="exPct">0%</span></div>`;
+    const setBar = (done, total) => {
+      const pct = total ? Math.round(100 * done / total) : 0;
+      if ($("exBar")) { $("exBar").style.width = pct + "%"; $("exPct").textContent = pct + "%"; $("exCount").textContent = total > 1 ? `${done} of ${total} images` : ""; }
+    };
+    const poll = setInterval(async () => { try { const p = await api("/api/editor/progress?job=" + job); setBar(p.done, p.total); } catch (e) {} }, 250);
     try {
       await saveNow();
       let j, summary;
+      const iouText = (v, lead) => (v == null ? "" : ` ${lead} IoU <b class="mono">${v.toFixed(4)}</b>.`);
       if (scope === "library") {
-        j = await api("/api/editor/library/export", { id: lib.id, dest });
-        summary = `${j.images} image${j.images === 1 ? "" : "s"} exported from ${esc(lib.name)}: ${j.edited} edited, ${j.done} marked done. Lowest ImageJ read-back match: IoU <b class="mono">${j.min_iou.toFixed(4)}</b>.`;
+        j = await api("/api/editor/library/export", { id: lib.id, dest, formats, job });
+        summary = `${j.images} image${j.images === 1 ? "" : "s"} exported from ${esc(lib.name)}: ${j.edited} edited, ${j.done} marked done.` + iouText(j.min_iou, "Lowest ImageJ read-back match:");
       } else {
         const regions = S.regions.map((r) => ({ name: r.name, rings: r.paths.map((p) => G.flatten(p, 1).map((q) => [+q.x.toFixed(2), +q.y.toFixed(2)])) }));
-        j = await api("/api/editor/export", { id: S.sid, regions, dest });
-        summary = `${j.regions} region${j.regions === 1 ? "" : "s"} exported from ${esc(S.meta.name)}. The ImageJ file was read back and matches the mask at IoU <b class="mono">${j.imagej_iou.toFixed(4)}</b>.`;
+        j = await api("/api/editor/export", { id: S.sid, regions, dest, formats, job });
+        summary = `${j.regions} region${j.regions === 1 ? "" : "s"} exported from ${esc(S.meta.name)}.` + iouText(j.imagej_iou, "The ImageJ file was read back and matches the mask at");
       }
+      clearInterval(poll); setBar(1, 1);
+      await new Promise((r) => setTimeout(r, 350));               // let the bar be seen full
       body.innerHTML = `<p class="note" style="margin:0 0 12px">${summary}</p>
         <div class="dest" style="margin-top:0"><span>Saved in</span><span class="path" title="${esc(j.dir)}">${esc(j.dir)}</span><button class="btn" id="exReveal">Show in Finder</button></div>
         <div class="actions"><button class="btn primary" id="exDone">Done</button></div>`;
       $("exReveal").onclick = () => api("/api/editor/reveal", { path: j.dir }).catch((e) => toast(e.message));
       $("exDone").onclick = () => $("exportModal").classList.remove("show");
       return j;
-    } catch (e) { body.innerHTML = `<p class="err">${esc(e.message)}</p><div class="actions"><button class="btn" id="exBack">Back</button></div>`; $("exBack").onclick = () => showExport(scope, lib && lib.id, lib && lib.name); }
+    } catch (e) {
+      clearInterval(poll);
+      body.innerHTML = `<p class="err">${esc(e.message)}</p><div class="actions"><button class="btn" id="exBack">Back</button></div>`;
+      $("exBack").onclick = () => showExport(scope, lib && lib.id, lib && lib.name);
+    }
   }
   let opening = false;
   async function openCase(i) {

@@ -31,8 +31,8 @@ How it works (three steps; step 1 differs by route):
      route the mask is authoritative, so its holes are kept.
   3. Trace. Each region's outline is traced along pixel boundaries, then simplified (Douglas-Peucker,
      --tolerance px, default 2) to a few dozen vertices, and written as an editable ImageJ polygon with a
-     translucent blue fill. A region with a real (unshaded) hole is written as a composite shape so the
-     hole stays clear; edit it by Shift/Alt-drawing. --tolerance 0 = exact pixel trace (hundreds of vertices).
+     translucent blue fill. A real (unshaded) hole is its own editable polygon, outlined in cyan and named
+     <region>-hole-K. --tolerance 0 = exact pixel trace (hundreds of vertices).
 """
 import argparse
 import csv
@@ -42,7 +42,7 @@ from pathlib import Path
 import numpy as np
 import tifffile
 from PIL import Image
-from roifile import ImagejRoi, ROI_OPTIONS, ROI_TYPE, roiwrite
+from roifile import ImagejRoi, ROI_TYPE, roiwrite
 from scipy import ndimage as ndi
 from skimage.color import rgb2hsv
 from skimage.measure import approximate_polygon, find_contours, label, regionprops
@@ -147,31 +147,29 @@ def _signed_area(xy):
     return 0.5 * np.sum(x * np.roll(y, -1) - np.roll(x, -1) * y)
 
 
-def imagej_roi(name, outer, holes):
-    """Editable polygon (draggable handles). A region with real holes is a composite shape instead, so
-    the hole stays unshaded; it is edited by Shift-drawing to add / Alt-drawing to cut (no handles)."""
-    roi = ImagejRoi.frompoints(outer.astype(np.float32), name=name)
-    roi.roitype = ROI_TYPE.POLYGON
-    if holes:
-        if _signed_area(outer) < 0:
-            outer = outer[::-1]
-        path = []
-        for ring in [outer] + [h if _signed_area(h) < 0 else h[::-1] for h in holes]:
-            path += [0, *ring[0]]
-            for x, y in ring[1:]:
-                path += [1, x, y]
-            path += [4]
-        roi.roitype, roi.options = ROI_TYPE.RECT, ROI_OPTIONS(0)
-        roi.n_coordinates, roi.integer_coordinates, roi.subpixel_coordinates = 0, None, None
-        roi.multi_coordinates = np.asarray(path, dtype=np.float32)
-        roi.shape_roi_size = len(path)
-    roi.fill_color, roi.stroke_color, roi.stroke_width = FILL, STROKE, 1
-    return roi
+HOLE_STROKE = b"\xff\x00\xc8\xff"                              # cyan outline for holes
+
+
+def imagej_rois(name, outer, holes):
+    """Every outline is a plain polygon, so ImageJ gives each one draggable handles.
+    The region is a blue-filled polygon; each hole is its own unfilled cyan polygon named
+    <region>-hole-K (ImageJ's composite shape would keep the hole unshaded but has no handles).
+    imagej2mask.py cuts the '-hole-' polygons back out of their region."""
+    region = ImagejRoi.frompoints(outer.astype(np.float32), name=name)
+    region.roitype = ROI_TYPE.POLYGON
+    region.fill_color, region.stroke_color, region.stroke_width = FILL, STROKE, 1
+    out = [region]
+    for k, h in enumerate(holes, 1):
+        hole = ImagejRoi.frompoints(h.astype(np.float32), name=f"{name}-hole-{k}")
+        hole.roitype = ROI_TYPE.POLYGON
+        hole.stroke_color, hole.stroke_width = HOLE_STROKE, 2
+        out.append(hole)
+    return out
 
 
 def region_rois(mask, tolerance=2.0):
     geoms, rows = region_geometry(mask, tolerance)
-    return [imagej_roi(*g) for g in geoms], rows
+    return [r for g in geoms for r in imagej_rois(*g)], rows
 
 
 def unshade(rgb, mask):
@@ -260,7 +258,7 @@ def convert(out_dir, image=None, mask=None, prob=None, overlay=None, threshold=0
         lab = label(m, connectivity=2)
         for row, r in zip(rows, sorted(regionprops(lab, intensity_image=p), key=lambda r: -r.area)):
             row["mean_prob"] = round(float(r.intensity_mean), 3)
-    rois = [imagej_roi(*g) for g in geoms]
+    rois = [r for g in geoms for r in imagej_rois(*g)]
     roi_path = out_dir / f"{stem}_RoiSet.zip"
     roi_path.unlink(missing_ok=True)
     if rois:

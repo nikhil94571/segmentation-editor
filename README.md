@@ -46,7 +46,11 @@ An easier alternative to correcting outlines in ImageJ.
 - **Preview, done, export all:** in the library list, one click previews an image beside the dialog and a second
   click (or Enter) opens it. "Mark done" (D, at the foot of the side panel) marks the image finished. Export opens a
   menu: this image or the whole library, and the folder to save in (a Finder folder chooser; the last folder is
-  remembered). A library export writes `masks/`, `shaded/`, `imagej/`, `roisets/`, `qupath/` and `summary.csv`.
+  remembered). You tick which file types to write, and a progress bar shows how far it has got. A library export writes
+  a folder per chosen type (`masks/`, `shaded/`, `imagej/`, `roisets/`, `qupath/`) and `summary.csv`.
+- **ImageJ output:** every outline is a plain polygon, so each one has draggable handles in ImageJ. A hole is its
+  own unfilled cyan polygon named `<region>-hole-K` (so the hole area looks shaded in ImageJ; `imagej2mask.py`
+  cuts it back out).
 - **Single file:** Open → Single file takes one image file (shaded, or an ImageJ .tif with its outlines inside),
   an image + separate outlines, or model output; it joins the "Single imports" library.
 - **Shapes:** each region is a few nodes joined by lines you bend by dragging the line itself (cubic Béziers,

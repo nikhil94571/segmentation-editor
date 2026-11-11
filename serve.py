@@ -71,6 +71,8 @@ class Handler(SimpleHTTPRequestHandler):
         elif path == "/api/cases":
             cases = json.loads((ROOT / "out" / "cases.json").read_text())
             return self._json({"cases": cases, "decisions": load_decisions()})
+        elif path == "/api/editor/progress":
+            return self._json(eb.progress(q.get("job", [""])[0]))
         elif path == "/api/editor/settings":
             return self._editor(eb.get_settings)
         elif path == "/api/editor/libraries":
@@ -132,7 +134,7 @@ class Handler(SimpleHTTPRequestHandler):
         if url.path == "/api/editor/library/done":
             return self._editor(eb.set_done, body.get("id", ""), int(body.get("index", 0)), bool(body.get("done")))
         if url.path == "/api/editor/library/export":
-            return self._editor(eb.export_library, body.get("id", ""), body.get("dest"))
+            return self._editor(eb.export_library, body.get("id", ""), body.get("dest"), body.get("formats"), body.get("job"))
         if url.path == "/api/editor/library/open":
             return self._editor(eb.open_library_case, body.get("id", ""), int(body.get("index", 0)))
         if url.path == "/api/editor/selftest":            # results of viewer/editor/selftest.js
@@ -142,7 +144,8 @@ class Handler(SimpleHTTPRequestHandler):
         if url.path == "/api/editor/save":
             return self._editor(eb.save_state, body.get("id", ""), body.get("state"))
         if url.path == "/api/editor/export":
-            return self._editor(eb.export, body.get("id", ""), body.get("regions", []), body.get("stem"), body.get("dest"))
+            return self._editor(eb.export, body.get("id", ""), body.get("regions", []), body.get("stem"), body.get("dest"),
+                                body.get("formats"), body.get("job"))
         if url.path == "/api/editor/choose-folder":
             return self._editor(eb.choose_folder)
         if url.path == "/api/editor/reveal":

@@ -23,7 +23,7 @@ from pathlib import Path
 import numpy as np
 import tifffile
 from PIL import Image
-from roifile import ImagejRoi, ROI_OPTIONS, ROI_TYPE, roiwrite
+from roifile import roiwrite
 from scipy import ndimage as ndi
 from skimage.measure import approximate_polygon, label, regionprops
 from skimage.morphology import remove_small_holes, remove_small_objects
@@ -269,30 +269,6 @@ def _depths(rings):
     return [sum(inside(r[0], o) for j, o in enumerate(rings) if j != i) for i, r in enumerate(rings)]
 
 
-def _roi(name, rings):
-    """ImageJ ROI for a region: a polygon (draggable handles) when it is one ring, else a composite."""
-    rings = [np.asarray(r, float) for r in rings]
-    if len(rings) == 1:
-        return h2.imagej_roi(name, rings[0], [])
-    depth = _depths(rings)
-    roi = ImagejRoi.frompoints(np.vstack(rings).astype(np.float32), name=name)      # name + bounds
-    path = []
-    for r, dep in zip(rings, depth):
-        want_ccw = dep % 2 == 0                         # outers one way round, holes the other
-        if (h2._signed_area(r) > 0) != want_ccw:
-            r = r[::-1]
-        path += [0, *r[0]]
-        for x, y in r[1:]:
-            path += [1, x, y]
-        path += [4]
-    roi.roitype, roi.options = ROI_TYPE.RECT, ROI_OPTIONS(0)
-    roi.n_coordinates, roi.integer_coordinates, roi.subpixel_coordinates = 0, None, None
-    roi.multi_coordinates = np.asarray(path, dtype=np.float32)
-    roi.shape_roi_size = len(path)
-    roi.fill_color, roi.stroke_color, roi.stroke_width = h2.FILL, h2.STROKE, 1
-    return roi
-
-
 SETTINGS = ROOT / "settings.json"
 
 
@@ -336,9 +312,22 @@ def reveal(path):
     return {"ok": True}
 
 
-def export(sid, regions, stem=None, dest=None):
+FORMATS = ("mask_png", "overlay_png", "imagej_tif", "roiset_zip", "qupath_geojson")
+_progress = {}                                   # job id -> {"done": n, "total": n}; polled by the page
+
+
+def progress(job):
+    return _progress.get(job, {"done": 0, "total": 0})
+
+
+def export(sid, regions, stem=None, dest=None, formats=None, job=None):
     """regions: [{name, rings: [[[x, y], ...], ...]}] (curves already flattened by the page).
     Writes PNGs + ImageJ + QuPath files to sessions/<id>/export/ and checks the ImageJ file reads back."""
+    want = set(formats or FORMATS) & set(FORMATS)
+    if not want:
+        raise ValueError("Choose at least one file type to export.")
+    if job:
+        _progress[job] = {"done": 0, "total": 1}
     d = _sdir(sid)
     meta = json.loads((d / "meta.json").read_text())
     stem = _slug(stem or meta["name"])
@@ -361,30 +350,38 @@ def export(sid, regions, stem=None, dest=None):
         # ImageJ polygons: thin the dense curve samples to a manageable number of handles
         slim = [approximate_polygon(np.vstack([r, r[:1]]), 1.0)[:-1] for r in rings]
         slim = [s for s in slim if len(s) >= 3]
-        rois.append(_roi(reg["name"], slim))
         depth = _depths(slim)
         outers = [i for i, dd in enumerate(depth) if dd % 2 == 0]
         for k, i in enumerate(outers):
             holes = [slim[j] for j, dd in enumerate(depth) if dd == depth[i] + 1 and _depths([slim[j], slim[i]])[0] == 1]
             geoms.append((reg["name"] if len(outers) == 1 else f"{reg['name']}.{k + 1}", slim[i], holes))
+            rois += h2.imagej_rois(*geoms[-1])                     # polygons only: all get handles in ImageJ
 
     files = {}
-    Image.fromarray((mask * 255).astype(np.uint8)).save(out / f"{stem}_mask.png")
-    files["mask_png"] = f"{stem}_mask.png"
-    shaded = base.astype(float)
-    shaded[mask] = (1 - h2.BLEND_ALPHA) * shaded[mask] + h2.BLEND_ALPHA * h2.BLEND_RGB
-    Image.fromarray(shaded.round().astype(np.uint8)).save(out / f"{stem}_overlay.png")
-    files["overlay_png"] = f"{stem}_overlay.png"
-    h2.write_imagej_tif(out / f"{stem}_ImageJ.tif", base, rois)
-    files["imagej_tif"] = f"{stem}_ImageJ.tif"
-    if rois:
+    if "mask_png" in want:
+        Image.fromarray((mask * 255).astype(np.uint8)).save(out / f"{stem}_mask.png")
+        files["mask_png"] = f"{stem}_mask.png"
+    if "overlay_png" in want:
+        shaded = base.astype(float)
+        shaded[mask] = (1 - h2.BLEND_ALPHA) * shaded[mask] + h2.BLEND_ALPHA * h2.BLEND_RGB
+        Image.fromarray(shaded.round().astype(np.uint8)).save(out / f"{stem}_overlay.png")
+        files["overlay_png"] = f"{stem}_overlay.png"
+    if "imagej_tif" in want:
+        h2.write_imagej_tif(out / f"{stem}_ImageJ.tif", base, rois)
+        files["imagej_tif"] = f"{stem}_ImageJ.tif"
+    if "roiset_zip" in want and rois:
         roiwrite(out / f"{stem}_RoiSet.zip", rois)
         files["roiset_zip"] = f"{stem}_RoiSet.zip"
-    h2.write_qupath_geojson(out / f"{stem}_QuPath.geojson", geoms)
-    files["qupath_geojson"] = f"{stem}_QuPath.geojson"
+    if "qupath_geojson" in want:
+        h2.write_qupath_geojson(out / f"{stem}_QuPath.geojson", geoms)
+        files["qupath_geojson"] = f"{stem}_QuPath.geojson"
 
-    back = to_mask(out / f"{stem}_ImageJ.tif", shape)             # read the ImageJ file back from disk
-    union = (back | mask).sum()
+    iou = None                                                     # read an ImageJ file back from disk, if one was written
+    check = files.get("imagej_tif") or files.get("roiset_zip")
+    if check:
+        back = to_mask(out / check, shape)
+        union = (back | mask).sum()
+        iou = round(float((back & mask).sum() / union), 4) if union else 1.0
     if dest is not None:                                           # copy the set into the chosen folder
         target = _dest(dest) / stem
         n = 2
@@ -393,9 +390,10 @@ def export(sid, regions, stem=None, dest=None):
             n += 1
         shutil.copytree(out, target)
         out = target
+    if job:
+        _progress[job] = {"done": 1, "total": 1}
     return {"dir": str(out), "files": {k: f"/sessions/{sid}/export/{v}" for k, v in files.items()},
-            "regions": len(rois), "mask_px": int(mask.sum()),
-            "imagej_iou": round(float((back & mask).sum() / union), 4) if union else 1.0}
+            "regions": len(regions), "mask_px": int(mask.sum()), "imagej_iou": iou}
 
 
 # ---------- libraries ----------
@@ -715,7 +713,7 @@ def set_done(lid, index, done):
     return {"ok": True, "done": bool(done)}
 
 
-def export_library(lid, dest=None):
+def export_library(lid, dest=None, formats=None, job=None):
     """Export every image of a library as it stands (saved edits, else the imported regions) into
     exports/<library>-<time>/, sorted by file type, with a summary.csv and a .zip of the lot."""
     import csv
@@ -723,9 +721,14 @@ def export_library(lid, dest=None):
     out = (_dest(dest) if dest else ROOT / "exports") / f"{_slug(lib['name'])}-{time.strftime('%Y%m%d-%H%M%S')}"
     folders = {"mask_png": "masks", "overlay_png": "shaded", "imagej_tif": "imagej", "roiset_zip": "roisets",
                "qupath_geojson": "qupath"}
-    for d in folders.values():
-        (out / d).mkdir(parents=True, exist_ok=True)
+    want = [f for f in FORMATS if f in set(formats or FORMATS)]
+    if not want:
+        raise ValueError("Choose at least one file type to export.")
+    for key in want:
+        (out / folders[key]).mkdir(parents=True, exist_ok=True)
     rows = []
+    if job:
+        _progress[job] = {"done": 0, "total": len(lib["cases"])}
     for i, c in enumerate(lib["cases"]):
         sid = open_library_case(lid, i)["id"]
         sd = _sdir(sid)
@@ -737,7 +740,9 @@ def export_library(lid, dest=None):
         else:
             regions = [{"name": r["name"], "rings": r["rings"]} for r in json.loads((sd / "meta.json").read_text())["regions"]]
         stem = f"{i + 1:03d}_{_slug(c['name'])}"
-        r = export(sid, regions, stem)
+        r = export(sid, regions, stem, formats=want)
+        if job:
+            _progress[job] = {"done": i + 1, "total": len(lib["cases"])}
         for key, url in r["files"].items():
             src = sd / "export" / Path(url).name
             shutil.copy(src, out / folders[key] / src.name)
@@ -750,4 +755,4 @@ def export_library(lid, dest=None):
         w.writerows(rows)
     return {"dir": str(out), "images": len(rows),
             "done": sum(r["done"] == "yes" for r in rows), "edited": sum(r["edited"] == "yes" for r in rows),
-            "min_iou": min(r["imagej_iou"] for r in rows)}
+            "min_iou": min((r["imagej_iou"] for r in rows if r["imagej_iou"] is not None), default=None)}
