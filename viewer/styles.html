@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Editor Style Board</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: #ECEAE6; color: #1B2430; font: 15px/1.5 'Inter', system-ui, -apple-system, sans-serif; -webkit-font-smoothing: antialiased; }
+.page { max-width: 1240px; margin: 0 auto; padding: 36px 20px 80px; }
+.page > h1 { font-size: 26px; font-weight: 600; letter-spacing: -0.02em; }
+.page > p.lede { color: #49535F; max-width: 760px; margin-top: 8px; }
+.variant { margin-top: 44px; }
+.v-head { display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap; }
+.v-head h2 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; }
+.v-head .tagline { color: #49535F; }
+.v-head .pick { margin-left: auto; font-size: 12px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: #1F5E9B; border: 1px solid #C6D8EC; background: #E7EEF7; border-radius: 6px; padding: 2px 8px; }
+.notes { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 28px; margin: 10px 0 14px; font-size: 13.5px; color: #49535F; }
+.notes b { color: #1B2430; font-weight: 600; }
+@media (max-width: 760px) { .notes { grid-template-columns: 1fr; } }
+.frame { border-radius: 14px; overflow: hidden; box-shadow: 0 24px 60px -28px rgba(20,28,40,.45), 0 0 0 1px rgba(20,28,40,.08); overflow-x: auto; }
+.reco { margin-top: 52px; background: #fff; border: 1px solid #DED9D1; border-radius: 14px; padding: 20px 22px; }
+.reco h2 { font-size: 17px; margin-bottom: 8px; }
+.reco p + p { margin-top: 8px; }
+.reco p { color: #333E4B; max-width: 820px; }
+
+/* ================= the mock editor (shared structure) ================= */
+.mock { --gap: 0px; min-width: 1000px; height: 600px; display: grid; grid-template-rows: auto 1fr auto; background: var(--bg); color: var(--ink);
+  font-family: var(--font); font-size: 12.5px; padding: var(--gap); gap: var(--gap); }
+.mock button { font: inherit; color: inherit; border: none; background: none; cursor: default; }
+.m-top { display: flex; align-items: center; gap: 10px; height: var(--top-h, 50px); padding: 0 12px; background: var(--panel); border-bottom: var(--edge);
+  border-radius: var(--r-panel); box-shadow: var(--shadow); backdrop-filter: var(--blur); border: var(--float-edge, none); }
+.m-brand { font-weight: 600; font-size: 13.5px; letter-spacing: -0.01em; white-space: nowrap; }
+.m-nav { display: inline-flex; align-items: center; gap: 2px; color: var(--soft); font-family: var(--mono); font-size: 12px; }
+.m-nav i { width: 26px; height: 26px; display: grid; place-items: center; border-radius: var(--r-ctl); font-style: normal; }
+.m-name { font-family: var(--mono); font-size: 12px; color: var(--soft); background: var(--well); border: 1px solid var(--line-soft); border-radius: var(--r-ctl); padding: 4px 9px; white-space: nowrap; }
+.m-sp { flex: 1; }
+.m-btn { display: inline-flex; align-items: center; gap: 6px; height: var(--ctl-h, 30px); padding: 0 11px; border-radius: var(--r-ctl); border: 1px solid var(--line); background: var(--panel2);
+  color: var(--soft); font-weight: 500; white-space: nowrap; }
+.m-btn.primary { background: var(--primary); border-color: var(--primary); color: var(--primary-ink); font-weight: 600; }
+.m-btn.done { background: var(--ok-tint); border-color: var(--ok); color: var(--ok); }
+.m-ico { width: 28px; height: 28px; display: grid; place-items: center; color: var(--soft); border-radius: var(--r-ctl); }
+.m-ico svg, .m-tool svg, .m-btn svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.m-zoom { font-family: var(--mono); font-size: 12px; color: var(--soft); }
+.m-div { width: 1px; height: 20px; background: var(--line); }
+.m-body { display: grid; grid-template-columns: auto 1fr var(--side-w, 268px); gap: var(--gap); min-height: 0; }
+.m-rail { width: var(--rail-w, 48px); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 10px 0; background: var(--panel); border-right: var(--edge);
+  border-radius: var(--r-panel); box-shadow: var(--shadow); backdrop-filter: var(--blur); border: var(--float-edge, none); align-self: var(--rail-align, stretch); }
+.m-tool { width: 34px; height: 34px; display: grid; place-items: center; border-radius: var(--r-tool, var(--r-ctl)); color: var(--soft); }
+.m-tool.on { background: var(--tool-on, var(--primary)); color: var(--tool-on-ink, var(--primary-ink)); }
+.m-stage { position: relative; background: var(--stage); border-radius: var(--r-panel); overflow: hidden; min-width: 0; display: grid; place-items: center; box-shadow: var(--stage-shadow, none); }
+.m-img { position: relative; height: 92%; aspect-ratio: 1; border-radius: var(--r-img, 0px); overflow: hidden; box-shadow: var(--img-shadow, none); }
+.m-img img { width: 100%; height: 100%; display: block; }
+.m-img svg { position: absolute; inset: 0; width: 100%; height: 100%; }
+.m-side { display: flex; flex-direction: column; background: var(--panel); border-left: var(--edge); border-radius: var(--r-panel); box-shadow: var(--shadow); backdrop-filter: var(--blur);
+  border: var(--float-edge, none); min-height: 0; overflow: hidden; }
+.m-sec { padding: var(--pad, 11px 13px); border-bottom: 1px solid var(--line-soft); }
+.m-h { display: flex; justify-content: space-between; font-size: var(--label-size, 10.5px); font-weight: 600; text-transform: var(--label-case, uppercase); letter-spacing: var(--label-track, .07em); color: var(--mute); margin-bottom: 8px; }
+.m-h span:last-child { text-transform: none; letter-spacing: 0; font-weight: 500; }
+.m-row { display: flex; align-items: center; gap: 8px; color: var(--soft); }
+.m-row + .m-row { margin-top: 7px; }
+.m-track { flex: 1; height: 4px; border-radius: 2px; background: var(--line); position: relative; }
+.m-track i { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--accent); }
+.m-track b { position: absolute; top: 50%; width: 13px; height: 13px; border-radius: 50%; background: var(--knob, var(--accent)); border: var(--knob-edge, none); transform: translate(-50%,-50%); box-shadow: 0 1px 3px rgba(0,0,0,.25); }
+.m-check { width: 13px; height: 13px; border-radius: 4px; border: 1.5px solid var(--mute); flex: 0 0 auto; }
+.m-check.on { background: var(--accent); border-color: var(--accent); }
+.m-list { padding: 4px 7px; flex: 1; }
+.m-item { display: flex; align-items: center; gap: 8px; height: var(--row-h, 30px); padding: 0 8px; border-radius: var(--r-ctl); font-family: var(--mono); font-size: 12px; }
+.m-item.on { background: var(--sel); box-shadow: var(--sel-edge, none); color: var(--sel-ink, inherit); }
+.m-item span:first-child { flex: 1; }
+.m-item .c { color: var(--soft); } .m-item .c.low { color: var(--bad); font-weight: 600; }
+.m-tag { font-family: var(--font); font-size: 9.5px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; color: var(--mute); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
+.m-detail { padding: var(--pad, 11px 13px); border-top: 1px solid var(--line); }
+.m-detail .n { font-family: var(--mono); font-weight: 600; font-size: 13px; }
+.m-detail .s { color: var(--mute); font-size: 12px; margin: 1px 0 9px; }
+.m-ends { display: flex; justify-content: space-between; font-size: 10px; text-transform: uppercase; letter-spacing: .06em; color: var(--mute); margin-top: 6px; }
+.m-detail .m-btn { width: 100%; justify-content: center; margin-top: 11px; }
+.m-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 7px; }
+.m-hint { height: var(--hint-h, 28px); display: flex; align-items: center; padding: 0 13px; background: var(--panel); border-top: var(--edge); color: var(--soft); font-size: 12px; white-space: nowrap; overflow: hidden;
+  border-radius: var(--r-panel); box-shadow: var(--shadow); backdrop-filter: var(--blur); border: var(--float-edge, none); }
+.m-hint kbd { font-family: var(--mono); font-size: 10px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; margin: 0 3px; }
+.region { fill: rgba(10,80,235,.38); stroke: var(--outline, #12307F); stroke-width: 2.4; paint-order: stroke; }
+.region.sel { stroke-width: 3.4; }
+.halo { fill: none; stroke: rgba(255,255,255,.8); stroke-width: 5.5; }
+.node { fill: #F0A63A; stroke: #6B3F06; stroke-width: 1.6; }
+
+/* ================= A. Glass ================= */
+.v-glass { --gap: 10px; --font: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif; --mono: 'SF Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  --bg: linear-gradient(135deg, #EEF0FA 0%, #DCDDF6 55%, #C9C8F0 100%); --panel: rgba(255,255,255,.62); --panel2: rgba(255,255,255,.9); --well: rgba(255,255,255,.7);
+  --ink: #12142B; --soft: #3F4466; --mute: #7A7FA3; --line: rgba(60,64,120,.16); --line-soft: rgba(60,64,120,.09);
+  --accent: #4F5BD5; --primary: #14162E; --primary-ink: #fff; --ok: #2E8B57; --ok-tint: rgba(46,139,87,.12); --bad: #D4483B;
+  --sel: #14162E; --sel-ink: #fff; --r-panel: 22px; --r-ctl: 12px; --r-tool: 12px; --r-img: 14px;
+  --shadow: 0 10px 30px -14px rgba(40,44,110,.35), inset 0 1px 0 rgba(255,255,255,.8); --float-edge: 1px solid rgba(255,255,255,.7); --blur: blur(18px) saturate(1.4);
+  --edge: none; --stage: #E4E4E8; --img-shadow: 0 8px 24px -10px rgba(20,22,46,.4); --top-h: 54px; --ctl-h: 32px; --row-h: 34px; --pad: 13px 15px; --hint-h: 32px;
+  --label-size: 11px; --knob: #fff; --knob-edge: 1px solid rgba(60,64,120,.2); }
+.v-glass .m-item.on .c { color: rgba(255,255,255,.75); }
+.v-glass .m-rail { padding: 8px 0; }
+.mock.v-glass, .mock.v-glassdark { height: 660px; }
+
+/* ================= B. Glass, neutral dark ================= */
+.v-glassdark { --gap: 10px; --font: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif; --mono: 'SF Mono', 'IBM Plex Mono', ui-monospace, monospace;
+  --bg: radial-gradient(120% 90% at 20% 0%, #2A2C33 0%, #17181C 60%); --panel: rgba(52,54,62,.72); --panel2: rgba(255,255,255,.08); --well: rgba(0,0,0,.25);
+  --ink: #F2F3F5; --soft: #C3C6CE; --mute: #8B8F9A; --line: rgba(255,255,255,.13); --line-soft: rgba(255,255,255,.07);
+  --accent: #7C9BFF; --primary: #F2F3F5; --primary-ink: #17181C; --ok: #6FCF97; --ok-tint: rgba(111,207,151,.14); --bad: #FF8A7A;
+  --sel: rgba(255,255,255,.14); --sel-edge: inset 0 0 0 1px rgba(255,255,255,.18); --r-panel: 22px; --r-ctl: 12px; --r-tool: 12px; --r-img: 14px;
+  --shadow: 0 14px 34px -16px rgba(0,0,0,.8), inset 0 1px 0 rgba(255,255,255,.1); --float-edge: 1px solid rgba(255,255,255,.1); --blur: blur(18px) saturate(1.3);
+  --edge: none; --stage: #1D1E22; --img-shadow: 0 10px 28px -10px rgba(0,0,0,.8); --top-h: 54px; --ctl-h: 32px; --row-h: 34px; --pad: 13px 15px; --hint-h: 32px;
+  --label-size: 11px; --knob: #fff; --outline: #0E2A78; }
+
+/* ================= C. Current (ORA) ================= */
+.v-ora { --font: 'IBM Plex Sans', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --bg: #1B1F26; --panel: #242A33; --panel2: #2E343F; --well: #1B1F26; --ink: #E8EBEE; --soft: #AEB6C0; --mute: #7C858F; --line: #3B424E; --line-soft: #2F3540;
+  --accent: #5FA0E4; --primary: #5FA0E4; --primary-ink: #fff; --ok: #6FC08F; --ok-tint: #1C3327; --bad: #E08066;
+  --sel: #1B2A3D; --sel-edge: inset 0 0 0 1px #2C445E; --r-panel: 0px; --r-ctl: 8px; --shadow: none; --blur: none; --edge: 1px solid #3B424E; --stage: #14171C; }
+
+/* ================= D. Instrument ================= */
+.v-inst { --font: 'Inter', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --bg: #1A1A1A; --panel: #232323; --panel2: #2C2C2C; --well: #161616; --ink: #E6E6E6; --soft: #A8A8A8; --mute: #767676; --line: #3A3A3A; --line-soft: #2E2E2E;
+  --accent: #E0A23B; --primary: #E0A23B; --primary-ink: #1A1A1A; --ok: #7CC38F; --ok-tint: #22301F; --bad: #E5705C;
+  --sel: #33301F; --sel-edge: inset 2px 0 0 #E0A23B; --r-panel: 0px; --r-ctl: 4px; --shadow: none; --blur: none; --edge: 1px solid #3A3A3A; --stage: #808080;
+  --top-h: 42px; --ctl-h: 26px; --row-h: 26px; --pad: 9px 11px; --hint-h: 24px; --side-w: 248px; --rail-w: 42px; --tool-on: #3A3A3A; --tool-on-ink: #E0A23B;
+  --label-size: 10px; --label-track: .09em; --knob: #E6E6E6; }
+.v-inst .m-brand { font-size: 12px; text-transform: uppercase; letter-spacing: .08em; color: var(--soft); }
+
+/* ================= E. Clinical light ================= */
+.v-clin { --font: 'Inter', system-ui, sans-serif; --mono: 'IBM Plex Mono', ui-monospace, monospace;
+  --bg: #F4F5F7; --panel: #FFFFFF; --panel2: #FFFFFF; --well: #F4F5F7; --ink: #15202B; --soft: #44515E; --mute: #7B8794; --line: #D5DAE0; --line-soft: #E8EBEF;
+  --accent: #0F766E; --primary: #0F766E; --primary-ink: #fff; --ok: #1F7A4D; --ok-tint: #E4F2EA; --bad: #C0392B;
+  --sel: #E6F3F1; --sel-edge: inset 0 0 0 1px #A9D5CF; --r-panel: 0px; --r-ctl: 6px; --shadow: none; --blur: none; --edge: 1px solid #D5DAE0; --stage: #C9CDD3;
+  --top-h: 46px; --ctl-h: 28px; --row-h: 28px; --pad: 10px 12px; --hint-h: 26px; --label-case: none; --label-track: 0; --label-size: 11.5px; --knob: #fff; --knob-edge: 1px solid #9AA5B1; }
+</style>
+</head>
+<body>
+<div class="page">
+  <h1>Segmentation editor: style board</h1>
+  <p class="lede">Five looks for the same editor, same layout, same image. Judge each on two things: how it feels, and whether the tissue and its outline stay the most visible thing on screen. Mock-ups only: nothing here is clickable.</p>
+  <div id="variants"></div>
+  <div class="reco">
+    <h2>What I'd pick</h2>
+    <p><b>B, the glass style on a neutral dark ground,</b> with A as its light theme. It keeps the rounded floating panels you like, and it fixes the one real problem with the lavender version: a coloured surround shifts how pink and purple stain looks, and people annotating tissue are judging exactly those colours. In both A and B the area around the image is plain grey for that reason.</p>
+    <p>If the lab's experts spend hours a day in it, D is the most practical: smallest chrome, most room for the image, mid-grey surround like other imaging tools. It is also the least distinctive.</p>
+    <p>Whichever you choose, three things stay fixed because they are functional: the area behind the image is neutral grey, the region outline keeps a white halo so it reads on any tissue, and nodes stay orange so they never blend with the blue shading.</p>
+  </div>
+</div>
+<script>
+const V = [
+  { cls: "v-glass", name: "A. Glass, light", tag: "The Apple-style look from your screenshot", pick: "",
+    good: "Floating rounded panels, soft depth, dark pill for the active item. Friendly and modern; the best first impression in a demo.",
+    watch: "Lavender chrome sits next to pink and purple tissue. The image area itself is kept neutral grey so stain colours are not skewed. Larger rounded controls leave a little less room for the image." },
+  { cls: "v-glassdark", name: "B. Glass, neutral dark", tag: "Same floating glass, built for looking at tissue", pick: "My pick",
+    good: "Keeps the rounded glass panels, but the ground is neutral dark, so nothing competes with the stain colours and the image is the brightest thing on screen.",
+    watch: "Translucent panels need care over busy tissue: here they never overlap the image. Dark themes suit dim reading rooms more than bright offices." },
+  { cls: "v-ora", name: "C. Current", tag: "What the editor looks like now (ORA's dark theme)", pick: "",
+    good: "Docked panels, ink-blue accent, IBM Plex. Calm and consistent with ORA; nothing to rebuild.",
+    watch: "The blue accent is close to the blue shading, so selected items and regions share a colour family. Slightly blue-tinted greys around the image." },
+  { cls: "v-inst", name: "D. Instrument", tag: "Dense, quiet, like a microscope or grading tool", pick: "Most practical",
+    good: "Smallest chrome and tightest rows, so the image gets the most space. Mid-grey surround, the standard for judging colour. Amber accent can never be confused with the blue shading.",
+    watch: "Plain. Small targets suit a mouse more than a trackpad or touch screen." },
+  { cls: "v-clin", name: "E. Clinical light", tag: "Bright, crisp, like hospital software", pick: "",
+    good: "Familiar to people who work in clinical systems all day; reads well in a bright room and prints well in a paper figure.",
+    watch: "A white interface around a bright slide is the most tiring over long sessions, and makes pale tissue look washed out." },
+];
+const svg = (a) => `<svg viewBox="0 0 24 24">${a}</svg>`;
+const I = { undo: svg('<path d="M9 14 4 9l5-5"/><path d="M4 9h10a6 6 0 0 1 0 12h-3"/>'), redo: svg('<path d="m15 14 5-5-5-5"/><path d="M20 9H10a6 6 0 0 0 0 12h3"/>'),
+  minus: svg('<path d="M5 12h14"/>'), plus: svg('<path d="M12 5v14M5 12h14"/>'), edit: svg('<path d="M5 3l14 8-6 2-2 6z"/>'), draw: svg('<path d="M4 20l1-5L16 4l4 4L9 19z"/><path d="M14 6l4 4"/>'),
+  check: svg('<path d="m5 12 5 5 9-10"/>') };
+
+function overlay(regions) {
+  let out = "";
+  regions.forEach((r, i) => r.rings.forEach((ring) => {
+    const d = "M" + ring.map((p) => p.join(",")).join("L") + "Z";
+    out += `<path class="halo" d="${d}"/><path class="region ${i === 0 ? "sel" : ""}" d="${d}"/>`;
+    if (i === 0) for (let k = 0; k < ring.length; k += 8) out += `<circle class="node" cx="${ring[k][0]}" cy="${ring[k][1]}" r="7"/>`;
+  }));
+  return `<svg viewBox="0 0 1000 1000" preserveAspectRatio="none">${out}</svg>`;
+}
+function mock(v, regions) {
+  const rows = regions.slice().sort((a, b) => a.conf - b.conf).map((r) =>
+    `<div class="m-item ${r.name === regions[0].name ? "on" : ""}"><span>${r.name}</span><span class="c ${r.conf < 0.7 ? "low" : ""}">${Math.round(r.conf * 100)}%</span></div>`).join("");
+  return `<div class="mock ${v.cls}">
+    <div class="m-top">
+      <span class="m-brand">Segmentation editor</span>
+      <span class="m-nav"><i>‹</i>6 / 16<i>›</i></span>
+      <span class="m-name">gynecomastoid-mid__regions</span>
+      <button class="m-btn done">${I.check}Done</button>
+      <span class="m-sp"></span>
+      <span class="m-ico">${I.undo}</span><span class="m-ico">${I.redo}</span><span class="m-div"></span>
+      <span class="m-ico">${I.minus}</span><span class="m-zoom">38%</span><span class="m-ico">${I.plus}</span>
+      <button class="m-btn">Fit</button><button class="m-btn">Open…</button><button class="m-btn primary">Export</button>
+    </div>
+    <div class="m-body">
+      <div class="m-rail"><span class="m-tool on">${I.edit}</span><span class="m-tool">${I.draw}</span></div>
+      <div class="m-stage"><div class="m-img"><img src="/viewer/styleboard/tissue.jpg" alt="">${overlay(regions)}</div></div>
+      <div class="m-side">
+        <div class="m-sec">
+          <div class="m-h"><span>Display</span></div>
+          <div class="m-row"><span style="flex:0 0 78px">Fill opacity</span><span class="m-track"><i style="width:50%"></i><b style="left:50%"></b></span></div>
+          <div class="m-row"><span class="m-check"></span>Model's original outline</div>
+          <div class="m-row"><span class="m-check on"></span>Probability heatmap</div>
+        </div>
+        <div class="m-sec" style="border-bottom:none;padding-bottom:4px"><div class="m-h" style="margin:0"><span>Regions 4</span><span>Model confidence</span></div></div>
+        <div class="m-list">${rows}</div>
+        <div class="m-detail">
+          <div class="n">${regions[0].name}</div><div class="s">Model confidence ${Math.round(regions[0].conf * 100)}% · 24 nodes</div>
+          <div class="m-row" style="justify-content:space-between;margin-bottom:8px"><span>Grow / shrink</span><span style="font-family:var(--mono)">cut-off 0.50</span></div>
+          <div class="m-track"><i style="width:50%"></i><b style="left:50%"></b></div>
+          <div class="m-ends"><span>Grow</span><span>Shrink</span></div>
+          <button class="m-btn">Delete region</button>
+          <div class="m-pair"><button class="m-btn">Previous</button><button class="m-btn">Next</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="m-hint">Drag a node to move it · drag the line to bend it · drag inside to move the whole region · <kbd>Delete</kbd> removes the region</div>
+  </div>`;
+}
+fetch("/viewer/styleboard/regions.json").then((r) => r.json()).then((regions) => {
+  document.getElementById("variants").innerHTML = V.map((v) => `
+    <section class="variant">
+      <div class="v-head"><h2>${v.name}</h2><span class="tagline">${v.tag}</span>${v.pick ? `<span class="pick">${v.pick}</span>` : ""}</div>
+      <div class="notes"><div><b>Good for.</b> ${v.good}</div><div><b>Watch out.</b> ${v.watch}</div></div>
+      <div class="frame">${mock(v, regions)}</div>
+    </section>`).join("");
+});
+</script>
+</body>
+</html>
