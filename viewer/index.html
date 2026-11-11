@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ImageJ Conversion QA</title>
+<style>
+:root{
+  --bg:#f6f5f2;--panel:#fff;--ink:#1d1d1f;--muted:#6b6b70;--line:#e3e1dc;
+  --accent:#3b5bdb;--ok:#2f9e44;--ok-bg:#ebfbee;--bad:#e03131;--bad-bg:#fff5f5;--chip:#f1f0ec;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141416;--panel:#1d1d20;--ink:#ececef;--muted:#9b9ba3;--line:#2e2e33;
+  --accent:#7d97ff;--ok:#51cf66;--ok-bg:#16301d;--bad:#ff6b6b;--bad-bg:#3a1a1a;--chip:#26262a;}}
+:root[data-theme="dark"]{
+  --bg:#141416;--panel:#1d1d20;--ink:#ececef;--muted:#9b9ba3;--line:#2e2e33;
+  --accent:#7d97ff;--ok:#51cf66;--ok-bg:#16301d;--bad:#ff6b6b;--bad-bg:#3a1a1a;--chip:#26262a;}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif}
+header{position:sticky;top:0;z-index:5;background:var(--panel);border-bottom:1px solid var(--line);
+  display:flex;gap:12px;align-items:center;padding:10px 16px;flex-wrap:wrap}
+h1{font-size:15px;margin:0;font-weight:600}
+.casename{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px;background:var(--chip);padding:3px 8px;border-radius:6px}
+.spacer{flex:1}
+button,select{font:inherit;color:inherit;background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:6px 12px;cursor:pointer}
+button:hover,select:hover{border-color:var(--muted)}
+.progress{color:var(--muted);font-size:13px}
+.progress b{color:var(--ink)}
+main{padding:16px;max-width:1800px;margin:0 auto}
+.panels{display:grid;grid-template-columns:1fr 1fr;gap:14px}
+@media (max-width:900px){.panels{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:flex;flex-direction:column}
+.panel-head{display:flex;align-items:center;gap:8px;padding:8px 12px;border-bottom:1px solid var(--line);min-height:44px}
+.panel-head .t{font-weight:600}
+.tabs{display:flex;gap:4px;margin-left:auto}
+.tabs button{padding:4px 10px;font-size:12.5px}
+.tabs button.on{background:var(--accent);border-color:var(--accent);color:#fff}
+.view{overflow:auto;height:min(68vh,900px);background:#000}
+.view img{display:block;width:100%;image-rendering:auto}
+.view.zoomed img{image-rendering:pixelated}
+.legend{font-size:12px;color:var(--muted);padding:6px 12px;border-top:1px solid var(--line);min-height:30px}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin:0 4px 0 10px}
+.metrics{display:flex;flex-wrap:wrap;gap:8px;margin:14px 0}
+.m{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:8px 12px;min-width:140px}
+.m .k{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.m .v{font-size:18px;font-weight:600;font-variant-numeric:tabular-nums}
+.m .v.good{color:var(--ok)} .m .v.warn{color:var(--bad)}
+.m a{color:var(--accent);font-size:13px}
+.review{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:grid;grid-template-columns:auto 1fr;gap:14px;align-items:start}
+@media (max-width:700px){.review{grid-template-columns:1fr}}
+.verdict{display:flex;gap:8px}
+.verdict button{padding:10px 18px;font-weight:600;min-width:120px}
+.verdict .approve.on{background:var(--ok);border-color:var(--ok);color:#fff}
+.verdict .decline.on{background:var(--bad);border-color:var(--bad);color:#fff}
+textarea{width:100%;min-height:74px;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px;resize:vertical}
+.saved{font-size:12px;color:var(--muted);margin-top:4px;min-height:16px}
+details{margin-top:14px;background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 14px}
+summary{cursor:pointer;color:var(--muted)}
+table{border-collapse:collapse;width:100%;font-size:12.5px;font-variant-numeric:tabular-nums;margin-top:8px}
+th,td{text-align:left;padding:4px 8px;border-bottom:1px solid var(--line)}
+.kbd{font-size:12px;color:var(--muted)}
+kbd{font-family:ui-monospace,monospace;font-size:11px;border:1px solid var(--line);border-bottom-width:2px;border-radius:4px;padding:0 4px;background:var(--chip)}
+.status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--line);margin-right:6px}
+.status-dot.approved{background:var(--ok)} .status-dot.declined{background:var(--bad)}
+</style>
+</head>
+<body>
+<header>
+  <h1>ImageJ conversion QA</h1>
+  <span class="casename" id="caseName">…</span>
+  <span class="progress" id="progress"></span>
+  <span class="spacer"></span>
+  <select id="jump" aria-label="Jump to case"></select>
+  <label class="kbd">Zoom <select id="zoom"><option value="1">Fit</option><option value="2">2×</option><option value="4">4×</option></select></label>
+  <button id="prev" title="Previous (←)">← Prev</button>
+  <button id="next" title="Next (→)">Next →</button>
+  <button id="theme" title="Toggle theme">◐</button>
+</header>
+<main>
+  <div class="panels">
+    <section class="panel">
+      <div class="panel-head"><span class="t">Input</span><span class="kbd" id="leftLabel"></span></div>
+      <div class="view" id="leftView"><img id="leftImg" alt="converter input"></div>
+      <div class="legend">What the converter was given. Scroll/zoom stays in sync with the right panel.</div>
+    </section>
+    <section class="panel">
+      <div class="panel-head"><span class="t">ImageJ conversion</span>
+        <div class="tabs" id="tabs"></div></div>
+      <div class="view" id="rightView"><img id="rightImg" alt="ImageJ conversion"></div>
+      <div class="legend" id="legend"></div>
+    </section>
+  </div>
+
+  <div class="metrics" id="metrics"></div>
+
+  <div class="review">
+    <div class="verdict">
+      <button class="approve" id="approve" title="Approve (A)">✓ Approve</button>
+      <button class="decline" id="decline" title="Decline (D)">✕ Decline</button>
+    </div>
+    <div>
+      <textarea id="comment" placeholder="Comment (optional), e.g. which region is wrong and how"></textarea>
+      <div class="saved" id="saved"></div>
+    </div>
+  </div>
+
+  <details>
+    <summary>Regions in this RoiSet</summary>
+    <table id="regions"></table>
+  </details>
+  <p class="kbd">Keys: <kbd>←</kbd> <kbd>→</kbd> navigate · <kbd>A</kbd> approve · <kbd>D</kbd> decline · <kbd>1</kbd>–<kbd>4</kbd> switch view. Decisions save to <code>qa/decisions.json</code>.</p>
+</main>
+<script>
+const VIEWS = {
+  outlines: {label: "Outlines", file: "v_outlines.jpg",
+    legend: '<span class="sw" style="background:#ffe600"></span>ImageJ polygon outlines<span class="sw" style="background:#fff;border:1px solid #000"></span>draggable vertex handles (from the RoiSet.zip on disk)'},
+  mask: {label: "ImageJ mask", file: "v_mask.jpg",
+    legend: 'White = pixels ImageJ will treat as inside a ROI (re-drawn from the file, ImageJ fill rule)'},
+  conv: {label: "Conversion check", file: "v_conv.jpg",
+    legend: 'Outlines vs the model\'s own mask (the converter\'s job). <span class="sw" style="background:#5a5a5a"></span>match<span class="sw" style="background:#e61e1e"></span>shaded but not outlined<span class="sw" style="background:#00c8ff"></span>outlined but not shaded'},
+  expert: {label: "vs expert", file: "v_expert.jpg",
+    legend: 'Outlines vs the expert annotation: what the expert would fix. <span class="sw" style="background:#5a5a5a"></span>agree<span class="sw" style="background:#e61e1e"></span>model missed<span class="sw" style="background:#00c8ff"></span>model over-called'}
+};
+let cases = [], decisions = {}, i = 0, view = "outlines";
+const $ = id => document.getElementById(id);
+
+try { const t = localStorage.getItem("qa-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
+$("theme").onclick = () => {
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
+  const nxt = cur === "dark" ? "light" : "dark";
+  document.documentElement.dataset.theme = nxt;
+  try { localStorage.setItem("qa-theme", nxt); } catch (e) {}
+};
+
+async function load() {
+  const r = await fetch("/api/cases"); const d = await r.json();
+  cases = d.cases; decisions = d.decisions || {};
+  let start = 0;
+  try { start = Math.min(+localStorage.getItem("qa-index") || 0, cases.length - 1); } catch (e) {}
+  i = start; render();
+}
+
+function fmt(n) { return n.toLocaleString(); }
+
+function render() {
+  const c = cases[i]; const dec = decisions[c.case] || {};
+  $("caseName").textContent = c.case;
+  const done = cases.filter(x => decisions[x.case]?.status).length;
+  const ap = cases.filter(x => decisions[x.case]?.status === "approved").length;
+  const de = cases.filter(x => decisions[x.case]?.status === "declined").length;
+  $("progress").innerHTML = `Case <b>${i + 1}</b> / ${cases.length} · ${done} reviewed (<span style="color:var(--ok)">${ap} ✓</span>, <span style="color:var(--bad)">${de} ✕</span>)`;
+  $("jump").innerHTML = cases.map((x, k) => {
+    const s = decisions[x.case]?.status; const mark = s === "approved" ? "✓ " : s === "declined" ? "✕ " : "· ";
+    return `<option value="${k}" ${k === i ? "selected" : ""}>${mark}${x.case}</option>`;
+  }).join("");
+  if (!c.views.includes(view)) view = "outlines";
+  $("tabs").innerHTML = c.views.map((v, k) => `<button class="${v === view ? "on" : ""}" data-v="${v}" title="${k + 1}">${VIEWS[v].label}</button>`).join("");
+  $("tabs").querySelectorAll("button").forEach(b => b.onclick = () => { view = b.dataset.v; render(); });
+  $("leftImg").src = `/out/${c.case}/v_original.jpg`;
+  $("leftLabel").textContent = c.left_label || "";
+  $("rightImg").src = `/out/${c.case}/${VIEWS[view].file}`;
+  $("legend").innerHTML = VIEWS[view].legend;
+
+  let m = `
+    <div class="m"><div class="k">Route</div><div class="v" style="font-size:15px">${c.route === "model-output" ? "Model output (image + probability map)" : "Screenshot (colour-detected)"}</div></div>
+    <div class="m"><div class="k">Regions (ROIs)</div><div class="v">${c.regions}</div></div>
+    <div class="m"><div class="k">Draggable handles</div><div class="v">${c.vertices}</div></div>
+    <div class="m"><div class="k">Outline vs shading IoU</div><div class="v ${c.outline_vs_shading_iou >= 0.97 ? "good" : "warn"}">${c.outline_vs_shading_iou.toFixed(4)}</div></div>`;
+  if (c.conversion_iou !== undefined) m += `
+    <div class="m"><div class="k">Conversion IoU (vs model mask)</div><div class="v ${c.conversion_iou >= 0.97 ? "good" : "warn"}">${c.conversion_iou.toFixed(4)}</div></div>
+    <div class="m"><div class="k">Model vs expert (Dice)</div><div class="v">${c.vs_expert_dice.toFixed(3)}</div></div>`;
+  else m += `<div class="m"><div class="k">Conversion IoU</div><div class="v">n/a (real image)</div></div>`;
+  m += `<div class="m"><div class="k">Files</div><div class="v" style="font-size:13px;font-weight:500">
+          <a href="/out/${c.imagej_tif}" download>ImageJ .tif ↓</a> · <a href="/out/${c.qupath}" download>QuPath ↓</a> · <a href="/out/${c.roiset}" download>RoiSet ↓</a></div></div>
+        <div class="m"><div class="k">Size</div><div class="v">${c.width}×${c.height}</div></div>`;
+  $("metrics").innerHTML = m;
+
+  $("regions").innerHTML = "<tr><th>Name</th><th>Area px</th><th>Holes</th><th>Handles</th><th>Mean prob.</th><th>Centroid x,y</th><th>BBox x,y,w,h</th></tr>" +
+    c.region_rows.map(r => `<tr><td>${r.name}</td><td>${fmt(r.area_px)}</td><td>${r.holes}</td><td>${r.vertices}</td><td>${r.mean_prob ?? "–"}</td><td>${r.centroid_x}, ${r.centroid_y}</td><td>${r.bbox_x}, ${r.bbox_y}, ${r.bbox_w}, ${r.bbox_h}</td></tr>`).join("");
+
+  $("approve").classList.toggle("on", dec.status === "approved");
+  $("decline").classList.toggle("on", dec.status === "declined");
+  $("comment").value = dec.comment || "";
+  $("saved").textContent = dec.updated ? `Saved ${dec.updated.replace("T", " ")}` : "Not reviewed yet";
+  applyZoom();
+  try { localStorage.setItem("qa-index", i); } catch (e) {}
+}
+
+async function save(status) {
+  const c = cases[i];
+  const body = {case: c.case, status: status === undefined ? (decisions[c.case]?.status ?? null) : status, comment: $("comment").value};
+  $("saved").textContent = "Saving…";
+  try {
+    const r = await fetch("/api/decision", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)});
+    const d = await r.json(); if (!r.ok) throw new Error(d.error);
+    decisions[c.case] = d.saved;
+    $("saved").textContent = `Saved ${d.saved.updated.replace("T", " ")}`;
+  } catch (e) { $("saved").textContent = "Save failed: is serve.py running?"; return; }
+  if (status !== undefined) render();
+}
+
+function go(d) { i = (i + d + cases.length) % cases.length; render(); }
+$("prev").onclick = () => go(-1);
+$("next").onclick = () => go(1);
+$("jump").onchange = e => { i = +e.target.value; render(); };
+$("approve").onclick = () => save(decisions[cases[i].case]?.status === "approved" ? null : "approved");
+$("decline").onclick = () => save(decisions[cases[i].case]?.status === "declined" ? null : "declined");
+let t; $("comment").oninput = () => { clearTimeout(t); $("saved").textContent = "Typing…"; t = setTimeout(() => save(), 600); };
+
+function applyZoom() {
+  const z = +$("zoom").value;
+  for (const id of ["leftView", "rightView"]) {
+    const v = $(id); v.classList.toggle("zoomed", z > 1); v.querySelector("img").style.width = (z * 100) + "%";
+  }
+}
+$("zoom").onchange = applyZoom;
+let syncing = false;
+function sync(a, b) {
+  a.addEventListener("scroll", () => {
+    if (syncing) return; syncing = true;
+    b.scrollLeft = a.scrollLeft; b.scrollTop = a.scrollTop;
+    requestAnimationFrame(() => syncing = false);
+  });
+}
+sync($("leftView"), $("rightView")); sync($("rightView"), $("leftView"));
+
+document.addEventListener("keydown", e => {
+  if (e.target.tagName === "TEXTAREA" || e.target.tagName === "SELECT") return;
+  if (e.key === "ArrowRight") go(1);
+  else if (e.key === "ArrowLeft") go(-1);
+  else if (e.key === "a" || e.key === "A") $("approve").click();
+  else if (e.key === "d" || e.key === "D") $("decline").click();
+  else if (["1", "2", "3", "4"].includes(e.key)) { const v = cases[i].views[+e.key - 1]; if (v) { view = v; render(); } }
+});
+load();
+</script>
+</body>
+</html>
