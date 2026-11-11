@@ -293,7 +293,50 @@ def _roi(name, rings):
     return roi
 
 
-def export(sid, regions, stem=None):
+SETTINGS = ROOT / "settings.json"
+
+
+def get_settings():
+    st = json.loads(SETTINGS.read_text()) if SETTINGS.exists() else {}
+    d = Path(st.get("export_dir") or Path.home() / "Downloads")
+    if not d.is_dir():
+        d = Path.home() / "Downloads"
+    return {"export_dir": str(d), "root": str(ROOT), "home": str(Path.home())}
+
+
+def _dest(dest):
+    """The folder to export into: must already exist. Remembered for next time."""
+    d = Path(dest or get_settings()["export_dir"]).expanduser().resolve()
+    if not d.is_dir():
+        raise ValueError(f"That folder does not exist: {d}")
+    SETTINGS.write_text(json.dumps({"export_dir": str(d)}))
+    return d
+
+
+def choose_folder():
+    """Native macOS folder chooser (works whatever the browser). Returns {} if cancelled."""
+    import subprocess
+    start = get_settings()["export_dir"].replace("\\", "\\\\").replace('"', '\\"')
+    r = subprocess.run(["osascript", "-e", "tell me to activate", "-e",
+                        f'POSIX path of (choose folder with prompt "Save the export in" default location (POSIX file "{start}"))'],
+                       capture_output=True, text=True, timeout=600)
+    path = r.stdout.strip()
+    if r.returncode != 0 or not path:
+        return {}
+    return {"export_dir": str(_dest(path))}
+
+
+def reveal(path):
+    """Show an exported folder in Finder."""
+    import subprocess
+    p = Path(path)
+    if not p.is_dir():
+        raise ValueError("That folder is no longer there.")
+    subprocess.run(["open", str(p)], check=False)
+    return {"ok": True}
+
+
+def export(sid, regions, stem=None, dest=None):
     """regions: [{name, rings: [[[x, y], ...], ...]}] (curves already flattened by the page).
     Writes PNGs + ImageJ + QuPath files to sessions/<id>/export/ and checks the ImageJ file reads back."""
     d = _sdir(sid)
@@ -342,6 +385,14 @@ def export(sid, regions, stem=None):
 
     back = to_mask(out / f"{stem}_ImageJ.tif", shape)             # read the ImageJ file back from disk
     union = (back | mask).sum()
+    if dest is not None:                                           # copy the set into the chosen folder
+        target = _dest(dest) / stem
+        n = 2
+        while target.exists():
+            target = _dest(dest) / f"{stem}-{n}"
+            n += 1
+        shutil.copytree(out, target)
+        out = target
     return {"dir": str(out), "files": {k: f"/sessions/{sid}/export/{v}" for k, v in files.items()},
             "regions": len(rois), "mask_px": int(mask.sum()),
             "imagej_iou": round(float((back & mask).sum() / union), 4) if union else 1.0}
@@ -664,12 +715,12 @@ def set_done(lid, index, done):
     return {"ok": True, "done": bool(done)}
 
 
-def export_library(lid):
+def export_library(lid, dest=None):
     """Export every image of a library as it stands (saved edits, else the imported regions) into
     exports/<library>-<time>/, sorted by file type, with a summary.csv and a .zip of the lot."""
     import csv
     lib = _read_lib(lid)
-    out = ROOT / "exports" / f"{_slug(lib['name'])}-{time.strftime('%Y%m%d-%H%M%S')}"
+    out = (_dest(dest) if dest else ROOT / "exports") / f"{_slug(lib['name'])}-{time.strftime('%Y%m%d-%H%M%S')}"
     folders = {"mask_png": "masks", "overlay_png": "shaded", "imagej_tif": "imagej", "roiset_zip": "roisets",
                "qupath_geojson": "qupath"}
     for d in folders.values():
@@ -697,7 +748,6 @@ def export_library(lid):
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)
-    archive = shutil.make_archive(str(out), "zip", root_dir=out.parent, base_dir=out.name)
-    return {"dir": str(out), "zip": f"/exports/{Path(archive).name}", "images": len(rows),
+    return {"dir": str(out), "images": len(rows),
             "done": sum(r["done"] == "yes" for r in rows), "edited": sum(r["edited"] == "yes" for r in rows),
             "min_iou": min(r["imagej_iou"] for r in rows)}

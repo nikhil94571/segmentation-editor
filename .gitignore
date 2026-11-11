@@ -12,3 +12,4 @@ data/tissue/
 data/cases/
 .DS_Store
 exports/
+settings.json

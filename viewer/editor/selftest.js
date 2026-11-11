@@ -98,8 +98,11 @@
     // 12. delete a region
     const nD = S.regions.length; S.selected = S.regions[0].id; E.refresh(); key("Delete"); out.delete_removed = nD - S.regions.length;
     // 13. export
-    await E.doExport(); await wait(2500);
-    out.export_text = document.getElementById("exportBody").innerText.replace(/\s+/g, " ").slice(0, 120);
+    const st = await (await fetch("/api/editor/settings")).json(), testDest = st.root + "/scratch/export-test";
+    document.getElementById("export").click(); await wait(700);
+    out.export_menu = { opens_as_menu: !!document.getElementById("exGo"), options: [...document.querySelectorAll("input[name=exScope]")].map((x) => x.value + (x.checked ? "*" : "")), save_in: document.getElementById("exDest").textContent };
+    const ej = await E.runExport("image", { id: S.lib.id, name: S.lib.name }, testDest);
+    out.export_image = { dir: ej.dir.replace(st.root, ""), text: document.getElementById("exportBody").innerText.replace(/\s+/g, " ").slice(0, 90) };
     document.getElementById("exportModal").classList.remove("show");
     // 14. library: next image saves this one and opens the next; previous comes back with edits kept
     const i0 = S.caseIndex, name0 = S.meta.name, n0r = S.regions.length;
@@ -116,13 +119,13 @@
     window.__shot = true; await wait(1500); window.__shot = false;
     E.pickCase(target); await wait(2500);
     out.second_click_opens = { index: S.caseIndex, expected: target, dialog_closed: !document.getElementById("openModal").classList.contains("show") };
-    // 16. done mark: marks this image and moves to the next unfinished one
-    const dIdx = S.caseIndex; await E.toggleDone(); await wait(2500);
-    out.done_mark = { was_marked: S.lib.cases[dIdx].done === true, moved_to: [dIdx, S.caseIndex], button_now: document.getElementById("doneLabel").textContent };
-    document.getElementById("prevCase").click(); await wait(100);
-    // 17. export the whole library
-    await E.exportLibrary(S.lib.id, S.lib.name); await wait(500);
-    out.library_export = document.getElementById("exportBody").innerText.replace(/\s+/g, " ").slice(0, 150);
+    // 16. done mark: marks this image and stays on it
+    const dIdx = S.caseIndex; await E.toggleDone(); await wait(600);
+    out.done_mark = { was_marked: S.lib.cases[dIdx].done === true, stayed_on: [dIdx, S.caseIndex], button_now: document.getElementById("doneLabel").textContent, in_side_panel: !!document.querySelector(".side #doneBtn") };
+    await E.toggleDone(); await wait(400);
+    // 17. export the whole library to a chosen folder
+    const lj = await E.runExport("library", { id: S.lib.id, name: S.lib.name }, testDest);
+    out.library_export = { dir: lj.dir.replace(st.root, ""), images: lj.images };
     document.getElementById("exportModal").classList.remove("show");
     out.header_order = [...document.querySelector(".topbar").children].slice(0, 3).map((x) => x.id || x.className);
     out.conf_head = document.getElementById("confHead").textContent;
