@@ -100,7 +100,7 @@
     // 13. export
     const st = await (await fetch("/api/editor/settings")).json(), testDest = st.root + "/scratch/export-test";
     document.getElementById("export").click(); await wait(700);
-    out.export_menu = { opens_as_menu: !!document.getElementById("exGo"), options: [...document.querySelectorAll("input[name=exScope]")].map((x) => x.value + (x.checked ? "*" : "")), save_in: document.getElementById("exDest").textContent };
+    out.export_menu = { opens_as_menu: !!document.getElementById("exGo"), options: [...document.querySelectorAll("input[name=exScope]")].map((x) => x.value + (x.checked ? "*" : "")), save_in: document.getElementById("exDest").value };
     out.export_menu.formats = [...document.querySelectorAll("input[name=exFmt]")].map((x) => x.value).length;
     const ej = await E.runExport("image", { id: S.lib.id, name: S.lib.name }, testDest, ["mask_png", "qupath_geojson"]);
     out.export_image = { dir: ej.dir.replace(st.root, ""), text: document.getElementById("exportBody").innerText.replace(/\s+/g, " ").slice(0, 90) };

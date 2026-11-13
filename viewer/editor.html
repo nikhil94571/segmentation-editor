@@ -248,6 +248,8 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 .opt input { margin-top: 3px; accent-color: var(--accent); }
 .opt b { display: block; font-weight: 600; } .opt span span { font-size: var(--fs-small); color: var(--ink-mute); }
 .dest { display: flex; align-items: center; gap: 10px; margin-top: 14px; font-size: var(--fs-small); color: var(--ink-soft); }
+.dest input.path { border: 1px solid transparent; outline: none; font-size: var(--fs-small); }
+.dest input.path:focus { border-color: var(--accent); background: var(--panel-2); }
 .dest .path { flex: 1; min-width: 0; font-family: var(--font-mono); color: var(--ink); background: var(--bg); border-radius: 9px; padding: 6px 9px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
 
@@ -377,6 +379,7 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
       <div class="card">
         <h4>Image file</h4>
         <div class="field"><span>Shaded image, or ImageJ .tif with its outlines (.png, .jpg, .tif)</span><input type="file" id="f_shot_overlay" accept=".png,.jpg,.jpeg,.tif,.tiff"></div>
+        <div class="field"><span>Original image, optional. Needed if the shading is not blue</span><input type="file" id="f_shot_image" accept=".png,.jpg,.jpeg,.tif,.tiff"></div>
         <button class="btn primary" data-import="screenshot">Open image file</button>
       </div>
       <div class="card">
@@ -413,10 +416,10 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
     <span><kbd>N</kbd> <kbd>⇧N</kbd></span><span>Next, previous region (least confident first)</span>
     <span><kbd>Del</kbd></span><span>Remove the selected region. While drawing: remove the last node</span>
     <span><kbd>Enter</kbd> <kbd>Esc</kbd></span><span>Close the shape being drawn, cancel it</span>
-    <span><kbd>⌘Z</kbd> <kbd>⇧⌘Z</kbd></span><span>Undo, redo</span>
+    <span><kbd data-mod>⌘Z</kbd> <kbd data-mod>⇧⌘Z</kbd></span><span>Undo, redo</span>
     <span><kbd>+</kbd> <kbd>−</kbd> <kbd>0</kbd></span><span>Zoom in, out, fit</span>
     <span><kbd>M</kbd> <kbd>H</kbd></span><span>Model's original outline, probability heatmap</span>
-    <span>Scroll, pinch</span><span>Pan, zoom. Hold <kbd>Space</kbd> and drag to pan</span>
+    <span>Scroll, pinch</span><span>Pan, zoom (or <kbd data-mod>⌘</kbd> scroll). Hold <kbd>Space</kbd> and drag to pan</span>
     <span>Drag</span><span>A node moves it. The line bends. Inside a region moves the whole region</span>
     <span>Double-click</span><span>On a line: add a node. On a node: remove it</span>
   </div></div>

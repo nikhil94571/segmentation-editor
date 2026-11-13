@@ -7,6 +7,9 @@
   const CLOSE = 14;         // screen px: finishing this near the start closes a shape
   const FIT_TOL = 3;        // image px: how closely fitted curves follow the model's outline
   const BLUE = [10, 80, 235];
+  const MAC = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const MOD = MAC ? "⌘" : "Ctrl";                           // the key that goes with Z and with scroll-to-zoom
+  window.MODKEY = MOD;
 
   const S = {
     sid: null, meta: null, img: null, heat: null,
@@ -449,7 +452,7 @@
     else if (S.tool === "edit" && selHole() != null) h = `Hole selected · ${k("Del")} removes just this hole · drag inside it to move it · drag its nodes or line to reshape it`;
     else if (S.tool === "edit") h = region(S.selected)
       ? `Drag a node to move it · drag the line to bend it · drag inside to move the whole region · double-click the line to add a node, a node to remove it · ${k("Del")} removes the region`
-      : `Click a region to select it · drag empty space to pan · pinch or ${k("⌘")}-scroll to zoom`;
+      : `Click a region to select it · drag empty space to pan · pinch or ${k(MOD)}-scroll to zoom`;
     else if (S.draft) h = `Press the open end (orange) to continue · finish on the first node to close · ${k("Del")} removes the last node · ${k("Enter")} closes · ${k("Esc")} cancels`;
     else h = "Press, drag, release to draw a new region. Draw inside a region to cut a hole. Start and end on an outline to reroute that stretch. Drag back along your line to un-draw.";
     $("hint").innerHTML = h;
@@ -503,7 +506,7 @@
         <label class="opt"><input type="radio" name="exScope" value="library" ${scope === "library" ? "checked" : ""} ${lib ? "" : "disabled"}>
           <span><b>Whole library</b><span>${lib ? esc(lib.name) + (lib.n ? ` · ${lib.n} images` : "") : "No library open"}</span></span></label>
       </div>
-      <div class="dest"><span>Save in</span><span class="path" id="exDest" title="${esc(dest)}">${esc(tilde(dest, st.home))}</span><button class="btn" id="exChoose">Choose…</button></div>
+      <div class="dest"><span>Save in</span><input type="text" class="path" id="exDest" value="${esc(tilde(dest, st.home))}" title="The folder to save in. Choose it, or type a path." spellcheck="false"><button class="btn" id="exChoose">Choose…</button></div>
       <div class="fmt-h">Files to write</div>
       <div class="fmts">${FORMATS.map(([k, label]) => `<label class="check"><input type="checkbox" name="exFmt" value="${k}" ${fmts.includes(k) ? "checked" : ""}> ${label}</label>`).join("")}</div>
       <div class="err" id="exErr"></div>
@@ -511,14 +514,16 @@
     $("exportModal").classList.add("show");
     $("exCancel").onclick = () => $("exportModal").classList.remove("show");
     $("exChoose").onclick = async () => {
-      $("exErr").textContent = "Choose a folder in the Finder window…";
-      try { const j = await api("/api/editor/choose-folder", {}); if (j.export_dir) { dest = j.export_dir; $("exDest").textContent = tilde(dest, st.home); $("exDest").title = dest; } $("exErr").textContent = ""; }
-      catch (e) { $("exErr").textContent = e.message; }
+      $("exErr").textContent = "Choose a folder in the window that opens…";
+      try { const j = await api("/api/editor/choose-folder", {}); if (j.export_dir) { dest = j.export_dir; $("exDest").value = tilde(dest, st.home); } $("exErr").textContent = ""; }
+      catch (e) { $("exErr").textContent = e.message; $("exDest").focus(); }
     };
     $("exGo").onclick = () => {
       const chosen = [...document.querySelectorAll("input[name=exFmt]:checked")].map((x) => x.value);
       if (!chosen.length) { $("exErr").textContent = "Tick at least one file type."; return; }
       store.set("seg-editor-formats", JSON.stringify(chosen));
+      const typed = $("exDest").value.trim();                   // "~" stands for the home folder
+      if (typed) dest = typed === "~" || /^~[\\/]/.test(typed) ? st.home + typed.slice(1) : typed;
       runExport(document.querySelector("input[name=exScope]:checked").value, lib, dest, chosen);
     };
   }
@@ -546,7 +551,7 @@
       clearInterval(poll); setBar(1, 1);
       await new Promise((r) => setTimeout(r, 350));               // let the bar be seen full
       body.innerHTML = `<p class="note" style="margin:0 0 12px">${summary}</p>
-        <div class="dest" style="margin-top:0"><span>Saved in</span><span class="path" title="${esc(j.dir)}">${esc(j.dir)}</span><button class="btn" id="exReveal">Show in Finder</button></div>
+        <div class="dest" style="margin-top:0"><span>Saved in</span><span class="path" title="${esc(j.dir)}">${esc(j.dir)}</span><button class="btn" id="exReveal">${MAC ? "Show in Finder" : "Show folder"}</button></div>
         <div class="actions"><button class="btn primary" id="exDone">Done</button></div>`;
       $("exReveal").onclick = () => api("/api/editor/reveal", { path: j.dir }).catch((e) => toast(e.message));
       $("exDone").onclick = () => $("exportModal").classList.remove("show");
@@ -701,7 +706,7 @@
   async function doImport(route) {
     const err = $("importErr"); err.textContent = "Uploading…";
     try {
-      const spec = { model: { image: "f_model_image", model: "f_model_out" }, screenshot: { overlay: "f_shot_overlay" }, imagej: { imagej: "f_ij_image", rois: "f_ij_rois" } }[route];
+      const spec = { model: { image: "f_model_image", model: "f_model_out" }, screenshot: { overlay: "f_shot_overlay", image: "f_shot_image" }, imagej: { imagej: "f_ij_image", rois: "f_ij_rois" } }[route];
       const files = {};
       for (const [role, id] of Object.entries(spec)) { const t = await upload(id); if (t) files[role] = t; }
       const main = $(route === "model" ? "f_model_out" : route === "screenshot" ? "f_shot_overlay" : "f_ij_image").files[0];
@@ -725,6 +730,8 @@
   $("showModel").onchange = (e) => { S.showModel = e.target.checked; draw(); };
   $("showHeat").onchange = (e) => { S.showHeat = e.target.checked; draw(); };
   $("keysBtn").onclick = () => $("keysModal").classList.add("show");
+  if (!MAC) document.querySelectorAll("[data-mod]").forEach((e) => { e.textContent = { "⌘Z": "Ctrl+Z", "⇧⌘Z": "Ctrl+Shift+Z", "⌘": "Ctrl" }[e.textContent] || e.textContent; });
+  $("undo").title = `Undo (${MOD}${MAC ? "" : "+"}Z)`; $("redo").title = MAC ? "Redo (⇧⌘Z)" : "Redo (Ctrl+Shift+Z or Ctrl+Y)";
   $("tutBtn").onclick = () => window.Tutorial.open(); $("tutEmpty").onclick = () => window.Tutorial.open();
   document.querySelectorAll("#openTabs button").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
   document.querySelectorAll("[data-import]").forEach((b) => (b.onclick = () => doImport(b.dataset.import)));
@@ -747,6 +754,7 @@
     }
     if (document.querySelector(".backdrop.show")) { if (e.key === "Escape") { document.querySelectorAll(".backdrop.show").forEach((m) => m.classList.remove("show")); window.Tutorial.pause(); } return; }
     if (mod && k === "z") { e.preventDefault(); e.shiftKey ? redo() : undo(); return; }
+    if (mod && k === "y") { e.preventDefault(); redo(); return; }
     if (mod) return;
     if (e.key === " ") { S.space = true; cv.style.cursor = "grab"; e.preventDefault(); return; }
     if (k === "v") setTool("edit"); else if (k === "p") setTool("draw");

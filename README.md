@@ -4,6 +4,8 @@ Tools for turning a segmentation model's output on H&E tissue images into editab
 browser editor, and exporting to ImageJ, QuPath and plain masks. Public test data only.
 
 Setup: `python -m venv .venv && .venv/bin/pip install -r requirements.txt`
+(on Windows: `py -m venv .venv` then `.venv\Scripts\pip install -r requirements.txt`, and use `.venv\Scripts\python` wherever
+this page says `.venv/bin/python`).
 
 ## Two routes, one output
 
@@ -16,7 +18,8 @@ A segmentation model outputs a **probability map** (0–1 per pixel), thresholde
 .venv/bin/python highlight2imagej.py out/ --image tissue.png --mask mask.png      # PNG/TIFF/NPY, binary or labels
 
 # 2. Screenshot route (fallback): only a picture of the shaded result
-.venv/bin/python highlight2imagej.py out/ --overlay shaded.png [--image tissue.png]
+.venv/bin/python highlight2imagej.py out/ --overlay shaded.png --image tissue.png   # any shading colour
+.venv/bin/python highlight2imagej.py out/ --overlay shaded.png                      # blue shading only
 
 # Back from the expert's edited file to a mask (retraining / measurement)
 .venv/bin/python imagej2mask.py out/x_ImageJ.tif corrected_mask.png
@@ -79,7 +82,9 @@ Not yet tested by a person with a real mouse/trackpad.
 
 ## How it works (`highlight2imagej.py`)
 
-1. **Mask.** Model route: threshold the probability map, or read the mask (authoritative). Screenshot route:
+1. **Mask.** Model route: threshold the probability map, or read the mask (authoritative). Screenshot route
+   with the original image: the shading is wherever the two pictures differ, so its colour does not matter
+   (`overlay_detect.py`). Screenshot route without it (blue shading only):
    a pixel is a candidate if its hue is blue (190–262°); a candidate region is kept only if it contains a solid
    core where **smoothed blue-minus-red > 85**. Blending towards blue raises that everywhere the shading covers,
    while stain raises it only on scattered nuclei. This works whatever the underlying tissue hue; an earlier
@@ -119,6 +124,20 @@ Approve/Decline + comment → `qa/decisions.json`.
 
 Known limit (screenshot route only): on a bluish-stained slide, a cluster of bluish nuclei touching or near the
 shading can be included. The model route has no such issue.
+
+## Shading colour, and Windows
+
+- **Any colour needs the original image.** `tests_overlay.py` re-shades the 11 tissue images in ten colours at three
+  opacities and compares shaded against original: mean IoU 0.985 (0.999 for every colour except faint pink, purple
+  and white, where tissue of nearly the overlay's own colour barely changes). Both pictures JPEG-compressed, or a
+  soft-edged overlay: 0.93 to 0.97. In a library, name the pair `x_image.png` + `x_overlay.png` (or `_shaded`).
+- **Without the original, only blue shading is found.** A colour-free detector (the overlay's edge as one consistent
+  colour step) was tried on 11-13 Nov and dropped: it worked on crisp synthetic overlays, but not on compressed or
+  resized pictures or the real example, and needed thresholds tuned to these images.
+- **Windows and Linux:** the folder chooser uses the system dialog (PowerShell on Windows, zenity or kdialog on Linux),
+  the export folder can also be typed, "Show folder" opens the file manager, and shortcuts read Ctrl instead of ⌘
+  (Ctrl+Y also redoes). Checked in a browser pretending to be Windows; not yet run on a real Windows machine.
+  The tutorial clips were recorded on a Mac, so their key badges show ⌘.
 
 ## Still to confirm
 

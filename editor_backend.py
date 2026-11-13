@@ -15,6 +15,8 @@ Three ways in (import_session):
     imagej      an ImageJ .tif with an overlay, or an image + RoiSet .zip/.roi (or QuPath .geojson)
 """
 import json
+import os
+import sys
 import re
 import shutil
 import time
@@ -155,10 +157,10 @@ def import_session(route, files, name=None, threshold=0.5, sid=None):
         if "overlay" not in f:
             raise ValueError("Screenshot route needs the shaded image.")
         rgb = np.asarray(Image.open(f["overlay"]).convert("RGB"))
-        mask = h2.clean(h2.highlight_mask(rgb), 200, 200, rgb)
-        base = _rgb(f["image"]) if "image" in f else h2.unshade(rgb, mask)
-        if base.shape != rgb.shape:
-            raise ValueError("The original image and the screenshot are different sizes.")
+        mask, base = h2.shaded_mask(rgb, _rgb(f["image"]) if "image" in f else None)   # with the original: any colour
+        if not mask.any():
+            raise ValueError("No shading found in that image. Shading that is not blue can only be found "
+                             "when the original image is given as well.")
         return _write_session(sid, name, "screenshot", base, _pseudo_score(mask), _labels_by_area(mask), False, 0.5)
 
     if route == "imagej":
@@ -277,7 +279,7 @@ def get_settings():
     d = Path(st.get("export_dir") or Path.home() / "Downloads")
     if not d.is_dir():
         d = Path.home() / "Downloads"
-    return {"export_dir": str(d), "root": str(ROOT), "home": str(Path.home())}
+    return {"export_dir": str(d), "root": str(ROOT), "home": str(Path.home()), "platform": sys.platform}
 
 
 def _dest(dest):
@@ -290,12 +292,34 @@ def _dest(dest):
 
 
 def choose_folder():
-    """Native macOS folder chooser (works whatever the browser). Returns {} if cancelled."""
+    """The system's own folder chooser (works whatever the browser). Returns {} if cancelled.
+    macOS: AppleScript. Windows: the standard folder dialog through PowerShell. Linux: zenity or kdialog.
+    If none is available the page lets the path be typed instead."""
+    import shutil as sh
     import subprocess
-    start = get_settings()["export_dir"].replace("\\", "\\\\").replace('"', '\\"')
-    r = subprocess.run(["osascript", "-e", "tell me to activate", "-e",
-                        f'POSIX path of (choose folder with prompt "Save the export in" default location (POSIX file "{start}"))'],
-                       capture_output=True, text=True, timeout=600)
+    start = get_settings()["export_dir"]
+    if sys.platform == "darwin":
+        q = start.replace("\\", "\\\\").replace('"', '\\"')
+        cmd = ["osascript", "-e", "tell me to activate", "-e",
+               f'POSIX path of (choose folder with prompt "Save the export in" default location (POSIX file "{q}"))']
+    elif sys.platform.startswith("win"):
+        q = start.replace("'", "''")
+        cmd = ["powershell", "-NoProfile", "-STA", "-Command",
+               "Add-Type -AssemblyName System.Windows.Forms; "
+               "$d = New-Object System.Windows.Forms.FolderBrowserDialog; "
+               f"$d.Description = 'Save the export in'; $d.SelectedPath = '{q}'; "
+               "$top = New-Object System.Windows.Forms.Form -Property @{TopMost = $true}; "
+               "if ($d.ShowDialog($top) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }"]
+    elif sh.which("zenity"):
+        cmd = ["zenity", "--file-selection", "--directory", "--title=Save the export in", f"--filename={start}/"]
+    elif sh.which("kdialog"):
+        cmd = ["kdialog", "--getexistingdirectory", start]
+    else:
+        raise ValueError("No folder chooser on this computer. Type the folder path into the box instead.")
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=600)
+    except FileNotFoundError:
+        raise ValueError("Could not open a folder chooser. Type the folder path into the box instead.")
     path = r.stdout.strip()
     if r.returncode != 0 or not path:
         return {}
@@ -303,12 +327,15 @@ def choose_folder():
 
 
 def reveal(path):
-    """Show an exported folder in Finder."""
+    """Show an exported folder in the system's file manager (Finder, Explorer, ...)."""
     import subprocess
     p = Path(path)
     if not p.is_dir():
         raise ValueError("That folder is no longer there.")
-    subprocess.run(["open", str(p)], check=False)
+    if sys.platform.startswith("win"):
+        os.startfile(str(p))                                    # noqa: only exists on Windows
+    else:
+        subprocess.run(["open" if sys.platform == "darwin" else "xdg-open", str(p)], check=False)
     return {"ok": True}
 
 
@@ -493,6 +520,8 @@ def _build_cases(root, files):
             route, fl = "model", {"image": g["image"][0], "model": model[0]}
         elif g.get("rois") and g.get("image"):
             route, fl = "imagej", {"imagej": g["image"][0], "rois": g["rois"][0]}
+        elif g.get("overlay") and g.get("image"):                # shaded picture + its original: any shading colour
+            route, fl = "screenshot", {"overlay": g["overlay"][0], "image": g["image"][0]}
         elif g.get("overlay") or g.get("image"):
             route, fl = "screenshot", {"overlay": (g.get("overlay") or g["image"])[0]}
         else:

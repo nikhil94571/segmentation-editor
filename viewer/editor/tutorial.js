@@ -3,7 +3,8 @@
 (function () {
   "use strict";
   const DIR = "/viewer/editor/tutorial/";
-  const k = (s) => `<kbd>${s}</kbd>`;
+  const MOD = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent) ? "⌘" : "Ctrl";
+  const k = (s) => `<kbd>${s === "⌘" ? MOD : s}</kbd>`;       // Ctrl on Windows and Linux
   // clip: [file, width, height, optional caption]
   const CHAPTERS = [
     { title: "Getting started", note: "Open your images and find your way around.", steps: [
@@ -63,7 +64,7 @@
       { id: "done", nav: "Mark done, next image", title: "Mark done and go to the next image",
         text: `Click <b>Mark done</b> (${k("D")}) when an image is finished. The arrows at the top left (or ${k("[")} and ${k("]")}) go to the previous and next image.`, clips: [["19-done-next", 1280, 760]] },
       { id: "export", nav: "Export", title: "Export",
-        text: `Click <b>Export</b>. Choose this image or the whole library, the folder to save in, and which files you want. The bar shows progress, and <b>Show in Finder</b> opens the folder.`, clips: [["20-export", 980, 612]] },
+        text: `Click <b>Export</b>. Choose this image or the whole library, the folder to save in, and which files you want. The bar shows progress, and a button opens the folder when it is done.`, clips: [["20-export", 980, 612]] },
     ] },
   ];
 

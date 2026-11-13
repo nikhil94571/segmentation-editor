@@ -4,7 +4,8 @@
         python highlight2imagej.py out/ --image tissue.png --prob prob.tif      # probability map
         python highlight2imagej.py out/ --image tissue.png --mask mask.png      # thresholded mask
     Screenshot route (fallback: only a picture of the shaded result exists):
-        python highlight2imagej.py out/ --overlay shaded.png [--image tissue.png]
+        python highlight2imagej.py out/ --overlay shaded.png --image tissue.png   # any shading colour
+        python highlight2imagej.py out/ --overlay shaded.png                      # blue shading only
 
 Writes to out_dir/:
     <name>_ImageJ.tif       THE MAIN FILE: the clean tissue image with each region as an editable ImageJ
@@ -21,7 +22,9 @@ Writes to out_dir/:
 
 How it works (three steps; step 1 differs by route):
   1. Mask.  Model-output route: threshold the probability map (default 0.5) or read the mask directly.
-     Screenshot route:  The highlight is blue (hue ~190-262 deg); H&E tissue is pink/purple (hue ~270-345 deg).
+     Screenshot route, with the original image: the shading is wherever the two pictures differ, so any
+     colour works (overlay_detect.pair_mask). Without it, the shading must be blue:
+     the highlight is blue (hue ~190-262 deg); H&E tissue is pink/purple (hue ~270-345 deg).
      Some violet nuclei reach the edge of the blue band, so a loosely-blue region is kept only if it
      contains a solid core where smoothed (blue - red) is high: shading raises it everywhere it covers,
      stain only on scattered nuclei (hysteresis).
@@ -47,6 +50,8 @@ from scipy import ndimage as ndi
 from skimage.color import rgb2hsv
 from skimage.measure import approximate_polygon, find_contours, label, regionprops
 from skimage.morphology import disk, opening, remove_small_holes, remove_small_objects
+
+from overlay_detect import pair_mask
 
 LOOSE = dict(hue=(190, 262), sat=0.20)   # anything that might be highlight (incl. its darker/edge pixels)
 CORE_BLUE_EXCESS, CORE_SMOOTH_PX = 85, 3   # solid core: smoothed (blue - red) > 85
@@ -220,14 +225,29 @@ def load_prob(path):
     return a.astype(np.float32)
 
 
+def shaded_mask(rgb, original=None, min_area=200, min_hole=200):
+    """Screenshot route -> (mask, clean base image). With the original image the shading is found by
+    comparing the two (any colour); without it, by its blue colour."""
+    if original is not None:
+        if original.shape != rgb.shape:
+            raise ValueError(f"The original image ({original.shape[1]}x{original.shape[0]}) and the shaded image "
+                             f"({rgb.shape[1]}x{rgb.shape[0]}) are different sizes.")
+        m, blend = pair_mask(rgb, original)
+        if blend is not None:
+            return clean(m, min_area, min_hole), original
+    m = clean(highlight_mask(rgb), min_area, min_hole, rgb)
+    return m, (original if original is not None else unshade(rgb, m))
+
+
 def convert(out_dir, image=None, mask=None, prob=None, overlay=None, threshold=0.5,
             min_area=200, min_hole=200, tolerance=2.0, stem=None):
     """Two routes to the same editable ImageJ file:
 
     Model-output route (the real one):  image + mask, or image + prob (thresholded at `threshold`).
         The mask is authoritative: only specks < min_area and holes < min_hole are tidied.
-    Screenshot route (fallback):         overlay only (a picture of the shaded result), optionally +
-        image. The shading is found by colour; without the image the blue is un-blended.
+    Screenshot route (fallback):         overlay (a picture of the shaded result), optionally + image.
+        With the image, the shading is wherever the two differ (any colour). Without it, blue shading is
+        found by colour and un-blended to recover the tissue.
     """
     out_dir = Path(out_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
@@ -247,8 +267,7 @@ def convert(out_dir, image=None, mask=None, prob=None, overlay=None, threshold=0
         route, stem = "model-output", stem or Path(prob or mask).stem
     elif overlay is not None:
         rgb = np.asarray(Image.open(overlay).convert("RGB"))
-        m = clean(highlight_mask(rgb), min_area, min_hole, rgb)
-        base = np.asarray(Image.open(image).convert("RGB")) if image else unshade(rgb, m)
+        m, base = shaded_mask(rgb, np.asarray(Image.open(image).convert("RGB")) if image else None, min_area, min_hole)
         route, stem = "screenshot", stem or Path(overlay).stem
     else:
         raise SystemExit("give --image with --mask or --prob (model output), or --overlay (screenshot)")
