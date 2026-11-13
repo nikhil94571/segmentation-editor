@@ -54,8 +54,10 @@ An easier alternative to correcting outlines in ImageJ.
 - **ImageJ output:** every outline is a plain polygon, so each one has draggable handles in ImageJ. A hole is its
   own unfilled cyan polygon named `<region>-hole-K` (so the hole area looks shaded in ImageJ; `imagej2mask.py`
   cuts it back out).
-- **Single file:** Open → Single file takes one image file (shaded, or an ImageJ .tif with its outlines inside),
-  an image + separate outlines, or model output; it joins the "Single imports" library.
+- **Single file:** Open → Single file takes an ImageJ .tif with its outlines inside, a shaded image **with its
+  original** (required: the shading is found by comparing the two, so any colour works), an image + separate
+  outlines, or model output; it joins the "Single imports" library. A library folder may still hold a lone shaded
+  image, which is read only if the shading is blue.
 - **Shapes:** each region is a few nodes joined by lines you bend by dragging the line itself (cubic Béziers,
   fitted with Schneider's algorithm; corners kept).
 - **Edit (V):** drag a node, drag the line to bend it, drag inside a region to move all of it, double-click a line

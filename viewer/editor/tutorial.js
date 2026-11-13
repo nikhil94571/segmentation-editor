@@ -12,7 +12,7 @@
         text: `Click <b>Open…</b>, then <b>Work on this</b> beside a library. To choose a different image later, click <b>Open…</b> again: one click on an image shows a preview, a second click opens it.`,
         clips: [["01-open", 1280, 760]] },
       { id: "import", nav: "Add your own images", title: "Add your own images",
-        text: `In <b>Open…</b>, drop a folder (or a .zip file) onto <b>Upload folder</b>, or click it to choose one. Each image is paired with its model output by file name. For just one image, use the <b>Single file</b> tab.`,
+        text: `In <b>Open…</b>, drop a folder (or a .zip file) onto <b>Upload folder</b>, or click it to choose one. Each image is paired with its model output by file name. For just one image, use the <b>Single file</b> tab: an ImageJ file, a shaded image with its original, an image with separate outlines, or model output.`,
         clips: [["21-import", 1280, 760]] },
       { id: "zoom", nav: "Zoom and move around", title: "Zoom and move around",
         text: `Pinch on a trackpad, or hold ${k("⌘")} and scroll, to zoom in where the pointer is. Drag empty space to move around. <b>Fit</b> shows the whole image again.`,

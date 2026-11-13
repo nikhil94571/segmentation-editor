@@ -172,6 +172,9 @@ def import_session(route, files, name=None, threshold=0.5, sid=None):
         if "rois" not in f and src.suffix.lower() not in (".tif", ".tiff"):
             raise ValueError("That image has no ImageJ outlines inside it. Add the RoiSet .zip (or .roi / "
                              ".geojson) as the outlines file, or choose an ImageJ .tif saved with its overlay.")
+        if "rois" not in f and not (tifffile.TiffFile(src).imagej_metadata or {}).get("Overlays"):
+            raise ValueError("That .tif has no ImageJ outlines saved inside it. Open it with ImageJ + Outlines "
+                             "and add the outlines file.")
         try:
             regs = read_regions(outlines)
         except Exception as e:                                    # not an ImageJ/QuPath outline file

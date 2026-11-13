@@ -706,13 +706,17 @@
   async function doImport(route) {
     const err = $("importErr"); err.textContent = "Uploading…";
     try {
-      const spec = { model: { image: "f_model_image", model: "f_model_out" }, screenshot: { overlay: "f_shot_overlay", image: "f_shot_image" }, imagej: { imagej: "f_ij_image", rois: "f_ij_rois" } }[route];
+      const card = route;                                       // "tif" is the ImageJ route with one file
+      if (card === "tif") route = "imagej";
+      const spec = { model: { image: "f_model_image", model: "f_model_out" }, screenshot: { overlay: "f_shot_overlay", image: "f_shot_image" },
+        imagej: { imagej: "f_ij_image", rois: "f_ij_rois" }, tif: { imagej: "f_tif" } }[card];
       const files = {};
       for (const [role, id] of Object.entries(spec)) { const t = await upload(id); if (t) files[role] = t; }
-      const main = $(route === "model" ? "f_model_out" : route === "screenshot" ? "f_shot_overlay" : "f_ij_image").files[0];
+      const main = $({ model: "f_model_out", screenshot: "f_shot_overlay", imagej: "f_ij_image", tif: "f_tif" }[card]).files[0];
       if (!main) throw new Error("Choose a file first.");
-      if (route === "imagej" && !files.rois) throw new Error("Add the outlines file too. An ImageJ .tif with its outlines inside goes in Image file.");
-      if (route === "model" && !files.image) throw new Error("Add the original image too.");
+      if (card === "imagej" && !files.rois) throw new Error("Add the outlines file too. An ImageJ .tif with its outlines inside goes in ImageJ file.");
+      if (card === "screenshot" && !files.image) throw new Error("Add the original image too. The shading is found by comparing the two.");
+      if (card === "model" && !files.image) throw new Error("Add the original image too.");
       const j = await api("/api/editor/import", { route, files, name: main.name.replace(/\.[^.]+$/, ""), threshold: +$("f_model_thr").value || 0.5 });
       await useLibrary(j.library, j.index);
       $("openModal").classList.remove("show"); err.textContent = "";
