@@ -4,22 +4,23 @@
 const fs = require("fs"), path = require("path"), { execFileSync } = require("child_process");
 const ROOT = path.resolve(__dirname, ".."), TMP = path.join(ROOT, "scratch", "tut");
 const OUT = path.join(ROOT, "viewer", "editor", "tutorial");
-const BASE = "http://127.0.0.1:8765", PORT = 9333, W = 1280, H = 760, FPS = 30, SCALE = 2;
+const BASE = process.env.EDITOR_URL || "http://127.0.0.1:8765", HOSTED = process.env.EDITOR_HOSTED === "1", PORT = 9333, W = 1280, H = 760, FPS = 30, SCALE = 2;
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const jerk = (t) => t * t * t * (10 - 15 * t + 6 * t * t);          // minimum-jerk easing: how a hand moves point to point
 const lerp = (a, b, t) => a + (b - a) * t;
 
 const PAGE_SETUP = (lib) => `(() => {
-  try { localStorage.setItem("seg-editor-theme", "light"); localStorage.removeItem("seg-editor-formats"); } catch (e) {}
+  try { localStorage.setItem("seg-editor-theme", "light"); localStorage.setItem("seg-editor-welcomed", "1"); localStorage.removeItem("seg-editor-formats"); } catch (e) {}
+  window.__noDownload = true;                                 // hosted: do not really download the .zip while recording
   const f = window.fetch, json = (o) => new Response(JSON.stringify(o), { headers: { "Content-Type": "application/json" } });
   window.fetch = async (u, o) => {
     if (typeof u === "string" && u.startsWith("/api/editor/save")) return json({ ok: true });      // recordings never save edits
-    if (u === "/api/editor/library/export" || u === "/api/editor/export") {                         // exports go to scratch, shown as Downloads
+    if (!${HOSTED} && (u === "/api/editor/library/export" || u === "/api/editor/export")) {                         // exports go to scratch, shown as Downloads
       const b = JSON.parse(o.body); b.dest = ${JSON.stringify(path.join(ROOT, "scratch", "tut-export"))};
       const j = await (await f(u, Object.assign({}, o, { body: JSON.stringify(b) }))).json(); if (j.dir) j.dir = "~/Downloads/" + j.dir.split("/").pop(); return json(j);
     }
     const r = await f(u, o);
-    if (u === "/api/editor/settings") { const j = await r.json(); j.export_dir = j.home + "/Downloads"; return json(j); }
+    if (!${HOSTED} && u === "/api/editor/settings") { const j = await r.json(); j.export_dir = j.home + "/Downloads"; return json(j); }
     if (u === "/api/editor/libraries") { const j = await r.json(); j.libraries = j.libraries.filter((l) => l.id === ${JSON.stringify(lib)}); return json(j); }
     return r;
   };

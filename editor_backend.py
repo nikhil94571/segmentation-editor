@@ -14,6 +14,7 @@ Three ways in (import_session):
     screenshot  a picture of the shaded result (+ the original image if available)
     imagej      an ImageJ .tif with an overlay, or an image + RoiSet .zip/.roi (or QuPath .geojson)
 """
+import contextvars
 import json
 import os
 import sys
@@ -35,8 +36,35 @@ import highlight2imagej as h2
 from imagej2mask import _fill, read_regions, to_mask
 
 ROOT = Path(__file__).resolve().parent
-SESSIONS = ROOT / "sessions"
-UPLOADS = SESSIONS / "_uploads"
+# Hosted mode (HOSTED=1): the editor runs on a server for people who only have a link. Each browser gets
+# its own workspace (its own copy of the practice library, its own uploads and edits), exports come back
+# as a .zip download, and nothing that touches the server's own folders or desktop is available.
+HOSTED = os.environ.get("HOSTED") == "1"
+DATA = Path(os.environ.get("DATA_DIR") or ROOT)                 # where sessions and libraries are kept
+_workspace = contextvars.ContextVar("workspace", default="")
+
+
+def set_workspace(ws):
+    _workspace.set(ws or "")
+
+
+def _base():
+    ws = _workspace.get()
+    return DATA / "workspaces" / ws if ws else DATA
+
+
+def sessions():
+    return _base() / "sessions"
+
+
+def uploads():
+    return sessions() / "_uploads"
+
+
+def libs():
+    return _base() / "libraries"
+
+
 PSEUDO_PX = 80          # stand-in score: 0.5 at the edge, +-0.5 over +-40 px
 RING_TOL = 0.75         # px; removes the pixel staircase before the page fits curves
 _cache = {}
@@ -51,7 +79,7 @@ def _slug(s):
 def _sdir(sid):
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", sid or ""):
         raise ValueError("bad session id")
-    return SESSIONS / sid
+    return sessions() / sid
 
 
 def _rgb(path):
@@ -119,7 +147,7 @@ def _write_session(sid, name, route, base, score, labels, has_prob, threshold, r
             "width": int(base.shape[1]), "height": int(base.shape[0]), "created": time.strftime("%Y-%m-%d %H:%M"),
             "regions": regions if regions is not None else _regions_from_labels(labels, score, has_prob)}
     (d / "meta.json").write_text(json.dumps(meta))
-    _cache.pop(sid, None)
+    _cache.pop(str(d), None)
     return meta
 
 
@@ -220,11 +248,12 @@ def save_state(sid, state):
 
 
 def _arrays(sid):
-    if sid not in _cache:
-        d = _sdir(sid)
+    d = _sdir(sid)
+    key = str(d)                                                # the folder, not the id: workspaces reuse ids
+    if key not in _cache:
         _cache.clear()
-        _cache[sid] = (np.load(d / "score.npy"), np.load(d / "labels.npy"))
-    return _cache[sid]
+        _cache[key] = (np.load(d / "score.npy"), np.load(d / "labels.npy"))
+    return _cache[key]
 
 
 def score_png(sid):
@@ -232,6 +261,16 @@ def score_png(sid):
     out = _sdir(sid) / "score.png"
     if not out.exists():
         Image.fromarray((_arrays(sid)[0] * 255).round().astype(np.uint8)).save(out)
+    return out
+
+
+def tissue_view(sid):
+    """The tissue image as a JPEG for the page to show (a 2048 px PNG is several MB; this is well under 1).
+    Exports always use the original tissue.png."""
+    d = _sdir(sid)
+    out = d / "view.jpg"
+    if not out.exists():
+        Image.open(d / "tissue.png").convert("RGB").save(out, "JPEG", quality=90, subsampling=0)
     return out
 
 
@@ -278,6 +317,8 @@ SETTINGS = ROOT / "settings.json"
 
 
 def get_settings():
+    if HOSTED:
+        return {"hosted": True, "export_dir": "", "root": "", "home": "", "platform": sys.platform}
     st = json.loads(SETTINGS.read_text()) if SETTINGS.exists() else {}
     d = Path(st.get("export_dir") or Path.home() / "Downloads")
     if not d.is_dir():
@@ -286,7 +327,12 @@ def get_settings():
 
 
 def _dest(dest):
-    """The folder to export into: must already exist. Remembered for next time."""
+    """The folder to export into: must already exist. Remembered for next time.
+    Hosted: always the workspace's own exports folder (the page then downloads a .zip of it)."""
+    if HOSTED:
+        d = _base() / "exports"
+        d.mkdir(parents=True, exist_ok=True)
+        return d
     d = Path(dest or get_settings()["export_dir"]).expanduser().resolve()
     if not d.is_dir():
         raise ValueError(f"That folder does not exist: {d}")
@@ -294,7 +340,26 @@ def _dest(dest):
     return d
 
 
+def _zip(folder):
+    """Hosted: zip an exported folder next to itself -> the file name to download. Only the .zip is kept,
+    and only the newest few, so a workspace stays small."""
+    shutil.make_archive(str(folder), "zip", root_dir=folder.parent, base_dir=folder.name)
+    shutil.rmtree(folder, ignore_errors=True)
+    for old in sorted(folder.parent.glob("*.zip"), key=lambda p: p.stat().st_mtime)[:-3]:
+        old.unlink(missing_ok=True)
+    return folder.name + ".zip"
+
+
+def download_path(name):
+    f = _base() / "exports" / Path(str(name)).name
+    if f.suffix != ".zip" or not f.is_file():
+        raise ValueError("That download is no longer there. Export again.")
+    return f
+
+
 def choose_folder():
+    if HOSTED:
+        raise ValueError("Not available here.")
     """The system's own folder chooser (works whatever the browser). Returns {} if cancelled.
     macOS: AppleScript. Windows: the standard folder dialog through PowerShell. Linux: zenity or kdialog.
     If none is available the page lets the path be typed instead."""
@@ -331,6 +396,8 @@ def choose_folder():
 
 def reveal(path):
     """Show an exported folder in the system's file manager (Finder, Explorer, ...)."""
+    if HOSTED:
+        raise ValueError("Not available here.")
     import subprocess
     p = Path(path)
     if not p.is_dir():
@@ -350,7 +417,7 @@ def progress(job):
     return _progress.get(job, {"done": 0, "total": 0})
 
 
-def export(sid, regions, stem=None, dest=None, formats=None, job=None):
+def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=False):
     """regions: [{name, rings: [[[x, y], ...], ...]}] (curves already flattened by the page).
     Writes PNGs + ImageJ + QuPath files to sessions/<id>/export/ and checks the ImageJ file reads back."""
     want = set(formats or FORMATS) & set(FORMATS)
@@ -412,7 +479,8 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None):
         back = to_mask(out / check, shape)
         union = (back | mask).sum()
         iou = round(float((back & mask).sum() / union), 4) if union else 1.0
-    if dest is not None:                                           # copy the set into the chosen folder
+    download = None
+    if dest is not None or (HOSTED and deliver):                   # copy the set into the chosen folder
         target = _dest(dest) / stem
         n = 2
         while target.exists():
@@ -420,9 +488,13 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None):
             n += 1
         shutil.copytree(out, target)
         out = target
+        if HOSTED:
+            download = _zip(target)
+            shutil.rmtree(d / "export", ignore_errors=True)
     if job:
         _progress[job] = {"done": 1, "total": 1}
-    return {"dir": str(out), "files": {k: f"/sessions/{sid}/export/{v}" for k, v in files.items()},
+    return {"dir": out.name if HOSTED else str(out), "download": download,
+            "files": {k: f"/sessions/{sid}/export/{v}" for k, v in files.items()},
             "regions": len(regions), "mask_px": int(mask.sum()), "imagej_iou": iou}
 
 
@@ -430,7 +502,6 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None):
 # A library is a set of images to work through: libraries/<id>/library.json lists its cases, each with the
 # files it was built from. A case's session is created the first time it is opened.
 
-LIBS = ROOT / "libraries"
 _TOKENS = (r"(mask|masks|prob|probs|probability|pred|prediction|overlay|shaded|highlighted|tissue|image|img|"
            r"original|orig|roiset|rois|roi|imagej|qupath|outlines|labels|label|seg|expert|gt|truth|model|result)")
 _IGNORE = re.compile(r"(^|[_\-. ])(expert|gt|truth)$", re.I)
@@ -439,10 +510,11 @@ _IGNORE = re.compile(r"(^|[_\-. ])(expert|gt|truth)$", re.I)
 def _lib_path(lid):
     if not re.fullmatch(r"[a-zA-Z0-9_-]+", lid or ""):
         raise ValueError("bad library id")
-    return LIBS / lid
+    return libs() / lid
 
 
 def _read_lib(lid):
+    _seed_practice()                                            # a first visit asks for the practice library straight away
     f = _lib_path(lid) / "library.json"
     if not f.exists():
         raise ValueError("That library no longer exists.")
@@ -455,6 +527,14 @@ def _write_lib(lib):
     tmp = d / "library.json.tmp"
     tmp.write_text(json.dumps(lib, indent=1))
     tmp.replace(d / "library.json")
+
+
+def _lib_root(lib):
+    """Where a library's files are: its own upload folder, the sessions folder (single imports), or the
+    program's data folder (the practice library)."""
+    if lib.get("own_files"):
+        return _lib_path(lib["id"]) / "files"
+    return sessions() if lib["root"] == "sessions" else ROOT / lib["root"]
 
 
 def _case_key(rel):
@@ -561,7 +641,7 @@ def library_finish(lid):
     """Unpack an uploaded .zip if there is one, then recognise the files and build the case list."""
     import zipfile
     lib = _read_lib(lid)
-    root = ROOT / lib["root"]
+    root = _lib_root(lib)
     z = root / "__library__.zip"
     if z.exists():
         with zipfile.ZipFile(z) as zf:
@@ -580,33 +660,45 @@ def library_finish(lid):
     return {"id": lid, "cases": len(lib["cases"]), "skipped": skipped}
 
 
+PRACTICE = ("pash-low", "gynecomastoid-mid", "fibrocystic-mid", "prolif-fibrocystic-mid", "sclerosing-adenosis-mid",
+            "sclerosing-adenosis-low")
+
+
 def _seed_practice():
-    """The built-in practice cases, as a library. Created once; if deleted it stays deleted."""
-    LIBS.mkdir(exist_ok=True)
-    marker = LIBS / ".seeded"
+    """The built-in practice images, as a library. Created once; if deleted it stays deleted.
+    data/practice/ (in the repository) holds six model outputs for images in data/tissue_2k/. Without it
+    (an older checkout), every case made by make_cases.py is used."""
+    libs().mkdir(parents=True, exist_ok=True)
+    marker = libs() / ".seeded"
     if marker.exists():
         return
     marker.write_text("1")
     cases = []
-    for c in sorted((ROOT / "data" / "cases").glob("*")):
-        if (c / "prob.tif").exists():
-            cases.append({"name": c.name, "route": "model",
-                          "files": {"image": f"cases/{c.name}/tissue.png", "model": f"cases/{c.name}/prob.tif"}, "sid": None})
-    for f in sorted((ROOT / "data" / "real").glob("*.png")):
-        cases.append({"name": f.stem, "route": "screenshot", "files": {"overlay": f"real/{f.name}"}, "sid": None})
+    if (ROOT / "data" / "practice").is_dir():
+        for i, src in enumerate(PRACTICE, 1):
+            if (ROOT / "data" / "practice" / f"{src}_prob.png").exists():
+                cases.append({"name": f"practice-{i:02d}", "route": "model", "sid": None,
+                              "files": {"image": f"tissue_2k/{src}.png", "model": f"practice/{src}_prob.png"}})
+    else:
+        for c in sorted((ROOT / "data" / "cases").glob("*")):
+            if (c / "prob.tif").exists():
+                cases.append({"name": c.name, "route": "model",
+                              "files": {"image": f"cases/{c.name}/tissue.png", "model": f"cases/{c.name}/prob.tif"}, "sid": None})
+        for f in sorted((ROOT / "data" / "real").glob("*.png")):
+            cases.append({"name": f.stem, "route": "screenshot", "files": {"overlay": f"real/{f.name}"}, "sid": None})
     if cases:
-        _write_lib({"id": "practice", "name": "Practice cases", "created": time.strftime("%Y-%m-%d %H:%M"),
+        _write_lib({"id": "practice", "name": "Practice images", "created": time.strftime("%Y-%m-%d %H:%M"),
                     "root": "data", "own_files": False, "cases": cases})
 
 
 def _edited(case):
-    return bool(case.get("sid")) and (SESSIONS / case["sid"] / "state.json").exists()
+    return bool(case.get("sid")) and (sessions() / case["sid"] / "state.json").exists()
 
 
 def list_libraries():
     _seed_practice()
     out = []
-    for f in sorted(LIBS.glob("*/library.json"), key=lambda p: p.stat().st_ctime):
+    for f in sorted(libs().glob("*/library.json"), key=lambda p: p.stat().st_ctime):
         lib = json.loads(f.read_text())
         out.append({"id": lib["id"], "name": lib["name"], "created": lib.get("created", ""),
                     "count": len(lib["cases"]), "edited": sum(_edited(c) for c in lib["cases"]),
@@ -645,7 +737,7 @@ def open_library_case(lid, index):
     c = lib["cases"][index]
     if c.get("sid") and (_sdir(c["sid"]) / "meta.json").exists():
         return {"id": c["sid"]}
-    root = ROOT / lib["root"]
+    root = _lib_root(lib)
     sid = f"{_slug(lid)[:30]}-{index:04d}"
     import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid)
     c["sid"] = sid
@@ -695,7 +787,7 @@ def case_preview(lid, index, size=460):
     lib = _read_lib(lid)
     if not 0 <= index < len(lib["cases"]):
         raise ValueError("No such image in this library.")
-    c, root = lib["cases"][index], ROOT / lib["root"]
+    c, root = lib["cases"][index], _lib_root(lib)
     sd = _sdir(c["sid"]) if c.get("sid") else None
     regions, mask = None, None
     if sd and (sd / "meta.json").exists():
@@ -750,7 +842,7 @@ def export_library(lid, dest=None, formats=None, job=None):
     exports/<library>-<time>/, sorted by file type, with a summary.csv and a .zip of the lot."""
     import csv
     lib = _read_lib(lid)
-    out = (_dest(dest) if dest else ROOT / "exports") / f"{_slug(lib['name'])}-{time.strftime('%Y%m%d-%H%M%S')}"
+    out = (_dest(dest) if dest or HOSTED else ROOT / "exports") / f"{_slug(lib['name'])}-{time.strftime('%Y%m%d-%H%M%S')}"
     folders = {"mask_png": "masks", "overlay_png": "shaded", "imagej_tif": "imagej", "roiset_zip": "roisets",
                "qupath_geojson": "qupath"}
     want = [f for f in FORMATS if f in set(formats or FORMATS)]
@@ -785,6 +877,25 @@ def export_library(lid, dest=None, formats=None, job=None):
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)
-    return {"dir": str(out), "images": len(rows),
+    if HOSTED:                                                   # the per-image working copies are not needed again
+        for c in _read_lib(lid)["cases"]:
+            if c.get("sid"):
+                shutil.rmtree(_sdir(c["sid"]) / "export", ignore_errors=True)
+    return {"dir": out.name if HOSTED else str(out), "download": _zip(out) if HOSTED else None, "images": len(rows),
             "done": sum(r["done"] == "yes" for r in rows), "edited": sum(r["edited"] == "yes" for r in rows),
             "min_iou": min((r["imagej_iou"] for r in rows if r["imagej_iou"] is not None), default=None)}
+
+
+# ---------- hosted housekeeping ----------
+
+def sweep_workspaces(days=14):
+    """Hosted: delete workspaces nobody has touched for a while."""
+    root = DATA / "workspaces"
+    if not root.is_dir():
+        return 0
+    old, n = time.time() - days * 86400, 0
+    for d in root.iterdir():
+        if d.is_dir() and max((p.stat().st_mtime for p in d.rglob("*") if p.is_file()), default=d.stat().st_mtime) < old:
+            shutil.rmtree(d, ignore_errors=True)
+            n += 1
+    return n

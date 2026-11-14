@@ -1,8 +1,9 @@
 /* Records the tutorial clips shown in the editor's Tutorial panel (viewer/editor/tutorial/*.mp4).
    Usage:  node tutorial/make_tutorial.js <library id> [scene ...]
-   The library must hold the six "__regions" practice cases named slide-01..06 (see tutorial/README.md). */
-const { connect, hand, sleep, W, H, ROOT } = require("./rec.js");
-const SLIDE = 5;                                              // slide-06: the image most clips use
+   The library is the built-in practice library of a fresh data folder (see tutorial/README.md). */
+const fs = require("fs"), path = require("path"), { execFileSync } = require("child_process");
+const { connect, hand, sleep, W, H, ROOT, TMP } = require("./rec.js");
+const SLIDE = 0;                                              // practice-01: the image most clips use
 const CANVAS = { x: 4, y: 66, w: 800, h: 500 };               // tool rail + left part of the image area
 const CBOX = { x: 96, y: 86, w: 690, h: 462 };                // where the image window sits inside CANVAS
 const SIDE = { x: 476, y: 66, w: 800, h: 500 };               // right part of the image area + side panel (top)
@@ -27,18 +28,17 @@ const tool = async (t) => R.ev(`__editor.setTool(${JSON.stringify(t)})`);
 const GLAND = [[1300, 990], [1322, 952], [1385, 936], [1447, 950], [1478, 990], [1523, 1003], [1550, 1040], [1552, 1100], [1528, 1150], [1478, 1168], [1428, 1135], [1392, 1155], [1340, 1140], [1322, 1085], [1298, 1045]];
 
 const scenes = {
-  /* 1. Open a library and pick an image */
+  /* 1. The practice images: step through them, or pick one from the list */
   async open() {
-    await R.load(0, { blank: true });
-    await start("01-open", FULL, { x: 820, y: 560 });
-    await R.click(await R.el("#openEmpty"), { after: 0.9 });
-    await R.click(await R.el('#libList [data-act="use"]'), { after: 0.3 });
-    await R.waitFor("!!__editor.S.img && !document.getElementById('openModal').classList.contains('show')"); await R.hold(1.1);
+    await R.load(0);
+    await start("01-open", FULL, { x: 700, y: 520 });
+    await R.click(await R.el("#nextCase"), { after: 0.2 });
+    await R.waitFor("__editor.S.caseIndex===1 && !!__editor.S.img && document.getElementById('sessionName').textContent==='practice-02'"); await R.hold(1.2);
     await R.click(await R.el("#open"), { after: 0.9 });
-    await R.click(await R.el('#libList [data-case="5"]'), { after: 0.2 });
+    await R.click(await R.el('#libList [data-case="3"]'), { after: 0.2 });
     await R.waitFor("document.getElementById('previewImg').complete && document.getElementById('previewImg').naturalWidth>0"); await R.hold(1.5);
     await R.press(); await R.hold(0.1); await R.release();
-    await R.waitFor("__editor.S.caseIndex===5 && !!__editor.S.img && document.getElementById('sessionName').textContent==='slide-06'"); await R.hold(0.4);
+    await R.waitFor("__editor.S.caseIndex===3 && !!__editor.S.img && document.getElementById('sessionName').textContent==='practice-04'"); await R.hold(0.4);
     await R.move({ x: 700, y: 600 }); await finish();
   },
 
@@ -246,28 +246,28 @@ const scenes = {
 
   /* 19. Mark done, next image */
   async done() {
-    await R.load(SLIDE - 1); await R.ev("__editor.S.lib.cases[4].done && __editor.toggleDone()");
+    await R.load(0); await R.ev("__editor.S.lib.cases[0].done && __editor.toggleDone()");
     await start("19-done-next", FULL, { x: 760, y: 560 });
     await R.click(await R.el("#doneBtn"), { after: 1.0 });
     await R.click(await R.el("#nextCase"), { after: 0.2 });
-    await R.waitFor("__editor.S.caseIndex===5 && document.getElementById('sessionName').textContent==='slide-06'"); await R.hold(1.0);
+    await R.waitFor("__editor.S.caseIndex===1 && document.getElementById('sessionName').textContent==='practice-02'"); await R.hold(1.0);
     await R.click(await R.el("#prevCase"), { after: 0.2 });
-    await R.waitFor("__editor.S.caseIndex===4 && document.getElementById('sessionName').textContent==='slide-05'"); await R.hold(0.6);
+    await R.waitFor("__editor.S.caseIndex===0 && document.getElementById('sessionName').textContent==='practice-01'"); await R.hold(0.6);
     await finish(0.3);
-    await R.ev("__editor.S.lib.cases[4].done && __editor.toggleDone()");
+    await R.ev("__editor.S.lib.cases[0].done && __editor.toggleDone()");
   },
 
-  /* 20. Export */
+  /* 20. Export (to a folder on this computer; the hosted version downloads a .zip) */
   async export() {
     await R.load(SLIDE);
-    await start("20-export", { x: 300, y: 0, w: 980, h: 612 }, { x: 900, y: 420 });
+    await start(process.env.EDITOR_HOSTED === "1" ? "20-export-hosted" : "20-export", { x: 300, y: 0, w: 980, h: 612 }, { x: 900, y: 420 });
     await R.click(await R.el("#export"), { after: 0.9 });
     await R.click(await R.el('input[name=exScope][value=library]'), { after: 0.6 });
     await R.click(await R.el('input[name=exFmt][value=overlay_png]'), { after: 0.3 });
     await R.click(await R.el('input[name=exFmt][value=roiset_zip]'), { after: 0.5 });
     await R.click(await R.el("#exGo"), { after: 0.1 });
-    for (let i = 0; i < 400 && !(await R.ev("!!document.getElementById('exDone')")); i++) await R.hold(0.1);
-    await R.hold(1.6);
+    for (let i = 0; i < 600 && !(await R.ev("!!document.getElementById('exDone')")); i++) await R.hold(0.1);
+    await R.hold(1.8);
     await R.click(await R.el("#exDone"), { after: 0.4 });
     await finish(0.8);
   },
@@ -278,9 +278,32 @@ const scenes = {
     await start("21-import", FULL, { x: 900, y: 420 });
     await R.click(await R.el("#open"), { after: 0.9 });
     await R.move(await R.el("#libDrop")); await R.hold(1.6);
-    await R.click(await R.el('#openTabs [data-tab="import"]'), { after: 1.8 });
+    await R.click(await R.el('#openTabs [data-tab="import"]'), { after: 0.8 });
+    await R.move({ x: 560, y: 330 }, { dur: 0.9 }); await R.hold(0.5); await R.move({ x: 560, y: 520 }, { dur: 0.9 }); await R.hold(0.9);
     await R.click(await R.el('#openTabs [data-tab="libs"]'), { after: 0.6 });
     await finish(0.4);
+  },
+
+  /* A short GIF of the whole interface for an email: zoom in, extend a region, trim a region. -> scratch/editor-demo.gif */
+  async email() {
+    await R.load(SLIDE);
+    await start("email", FULL, { x: 560, y: 520 });
+    await R.move(await R.at(1600, 745)); await R.hold(0.3);
+    for (let i = 0; i < 26; i++) { await R.wheel(0, -12.6 * Math.sin((i + 0.5) / 26 * Math.PI), 4); await R.cursor(); }
+    await R.hold(0.6);
+    await R.click(await R.el("#toolDraw"), { after: 0.3, dur: 0.8 });
+    const a = await onLine("region-04", 1570, 640), b = await onLine("region-04", 1712, 702);
+    await stroke(hand([a].concat(await R.ats([[1578, 690], [1612, 728], [1662, 738], [1698, 722]]), [b]), { wobble: 0.7 }), { speed: 210, after: 0.7 });
+    const c = await onLine("region-02", 1440, 892), d = await onLine("region-02", 1762, 890);
+    await stroke(hand([c].concat(await R.ats([[1475, 897], [1525, 904], [1585, 912], [1645, 917], [1700, 914], [1738, 904]]), [d]), { wobble: 0.6 }), { speed: 250, after: 0.5 });
+    await R.move({ x: R.pos.x + 90, y: R.pos.y + 70 }); await R.hold(1.6);
+    R.on = false;
+    const dir = path.join(TMP, "email"), out = path.join(ROOT, "scratch", "editor-demo.gif"), pal = path.join(TMP, "email-palette.png");
+    const vf = "fps=12,scale=820:-1:flags=lanczos";
+    execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", "30", "-i", path.join(dir, "f%05d.jpg"), "-vf", vf + ",palettegen=max_colors=160:stats_mode=diff", pal]);
+    execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", "30", "-i", path.join(dir, "f%05d.jpg"), "-i", pal, "-lavfi", vf + "[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=4:diff_mode=rectangle", "-loop", "0", out]);
+    execFileSync("ffmpeg", ["-y", "-loglevel", "error", "-framerate", "30", "-i", path.join(dir, "f%05d.jpg"), "-vf", "scale=1280:-2:flags=lanczos", "-c:v", "libx264", "-preset", "slow", "-crf", "23", "-pix_fmt", "yuv420p", "-movflags", "+faststart", "-an", out.replace(".gif", ".mp4")]);
+    console.log(`email: ${R.n} frames, ${(R.n / 30).toFixed(1)} s, gif ${(fs.statSync(out).size / 1048576).toFixed(1)} MB`);
   },
 };
 
@@ -288,7 +311,7 @@ const scenes = {
   const [lib, ...want] = process.argv.slice(2);
   if (!lib) { console.error("usage: node tutorial/make_tutorial.js <library id> [scene ...]"); process.exit(1); }
   R = await connect(lib);
-  for (const name of want.length ? want : Object.keys(scenes)) {
+  for (const name of want.length ? want : Object.keys(scenes).filter((n) => n !== "email")) {
     try { await scenes[name](); } catch (e) { console.error(name + " FAILED: " + e.message); R.on = false; }
   }
   R.close();

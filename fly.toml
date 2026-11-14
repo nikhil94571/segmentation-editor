@@ -1,0 +1,23 @@
+# Fly.io settings for the hosted editor. Change the app name (it becomes <name>.fly.dev), then: fly launch --copy-config
+app = "segmentation-editor"
+primary_region = "syd"
+
+[build]
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "stop"      # sleeps when nobody is using it; wakes on the next visit (a few seconds)
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [[http_service.checks]]
+    path = "/healthz"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+
+[[vm]]
+  memory = "1gb"                   # 2048 px images and the grow/shrink re-cut need more than the 256 MB default
+  cpu_kind = "shared"
+  cpus = 1

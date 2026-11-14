@@ -1,0 +1,17 @@
+.git
+.venv
+__pycache__
+scratch
+tools
+out
+qa
+sessions
+libraries
+workspaces
+exports
+data/raw
+data/real
+data/tissue
+data/cases
+tutorial
+settings.json

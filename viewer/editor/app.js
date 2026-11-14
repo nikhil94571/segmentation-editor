@@ -36,7 +36,7 @@
   async function openSession(sid) {
     const { meta, state } = await api("/api/editor/session?id=" + encodeURIComponent(sid));
     const [img, score] = await Promise.all([
-      loadImage(`/sessions/${sid}/tissue.png`),
+      loadImage("/api/editor/tissue.jpg?id=" + encodeURIComponent(sid)),
       meta.has_prob ? loadImage("/api/editor/score.png?id=" + encodeURIComponent(sid)) : Promise.resolve(null),
     ]);
     Object.assign(S, { sid, meta, img, heat: score ? heatLayer(score) : null, selected: null, draft: null, stroke: null, drag: null, undo: [], redo: [] });
@@ -506,7 +506,8 @@
         <label class="opt"><input type="radio" name="exScope" value="library" ${scope === "library" ? "checked" : ""} ${lib ? "" : "disabled"}>
           <span><b>Whole library</b><span>${lib ? esc(lib.name) + (lib.n ? ` · ${lib.n} images` : "") : "No library open"}</span></span></label>
       </div>
-      <div class="dest"><span>Save in</span><input type="text" class="path" id="exDest" value="${esc(tilde(dest, st.home))}" title="The folder to save in. Choose it, or type a path." spellcheck="false"><button class="btn" id="exChoose">Choose…</button></div>
+      ${st.hosted ? '<p class="note" style="margin-top:14px">The files are packed into one .zip, which downloads to your computer.</p>' : ""}
+      <div class="dest" ${st.hosted ? "hidden" : ""}><span>Save in</span><input type="text" class="path" id="exDest" value="${esc(tilde(dest, st.home))}" title="The folder to save in. Choose it, or type a path." spellcheck="false"><button class="btn" id="exChoose">Choose…</button></div>
       <div class="fmt-h">Files to write</div>
       <div class="fmts">${FORMATS.map(([k, label]) => `<label class="check"><input type="checkbox" name="exFmt" value="${k}" ${fmts.includes(k) ? "checked" : ""}> ${label}</label>`).join("")}</div>
       <div class="err" id="exErr"></div>
@@ -550,6 +551,15 @@
       }
       clearInterval(poll); setBar(1, 1);
       await new Promise((r) => setTimeout(r, 350));               // let the bar be seen full
+      if (j.download) {                                         // hosted: the export comes back as a .zip
+        const url = "/api/editor/download?name=" + encodeURIComponent(j.download);
+        body.innerHTML = `<p class="note" style="margin:0 0 12px">${summary}</p>
+          <div class="dest" style="margin-top:0"><span>Downloaded as</span><span class="path">${esc(j.download)}</span><a class="btn" id="exAgain" href="${url}" download>Download again</a></div>
+          <div class="actions"><button class="btn primary" id="exDone">Done</button></div>`;
+        $("exDone").onclick = () => $("exportModal").classList.remove("show");
+        if (!window.__noDownload) $("exAgain").click();
+        return j;
+      }
       body.innerHTML = `<p class="note" style="margin:0 0 12px">${summary}</p>
         <div class="dest" style="margin-top:0"><span>Saved in</span><span class="path" title="${esc(j.dir)}">${esc(j.dir)}</span><button class="btn" id="exReveal">${MAC ? "Show in Finder" : "Show folder"}</button></div>
         <div class="actions"><button class="btn primary" id="exDone">Done</button></div>`;
@@ -610,7 +620,7 @@
         ${l.id === cur ? '<span class="tag cur">Working on this</span>' : '<button class="btn" data-act="use">Work on this</button>'}
         <button class="btn" data-act="export">Export</button>
         <button class="btn" data-act="rename">Rename</button>
-        <button class="btn danger" data-act="delete">Delete</button>
+        ${S.hosted && l.id === "practice" ? "" : '<button class="btn danger" data-act="delete">Delete</button>'}
       </div>${l.id === cur ? `<div class="cases">${S.lib.cases.map((c, i) => `<button class="${i === S.caseIndex ? "on" : ""} ${i === S.pick ? "sel" : ""}" data-case="${i}"><span class="q-name">${esc(c.name)}</span>${c.done ? '<span class="tag done">done</span>' : c.edited ? '<span class="tag">edited</span>' : ""}</button>`).join("")}</div>` : ""}`).join("")
       : '<p class="note">No libraries yet. Import a folder of images below.</p>';
     $("libList").querySelectorAll("[data-case]").forEach((b) => (b.onclick = () => pickCase(+b.dataset.case)));
@@ -780,9 +790,15 @@
   new ResizeObserver(resize).observe(stage);
 
   resize(); renderPanel(); renderHint();
-  const q = new URLSearchParams(location.search), wantLib = q.get("lib") || store.get("seg-editor-lib");
+  // The practice images open by themselves the first time; after that, whatever was open last.
+  const q = new URLSearchParams(location.search), wantLib = q.get("lib") ?? store.get("seg-editor-lib") ?? "practice";
   if (wantLib) window.__ready = useLibrary(wantLib, q.has("i") ? +q.get("i") : null).catch(() => closeImage());
   renderNav();
+  api("/api/editor/settings").then((st) => { S.hosted = !!st.hosted; document.documentElement.classList.toggle("hosted", S.hosted); }).catch(() => {})
+    .then(() => {                                               // a first visit starts with the tutorial open
+      if (store.get("seg-editor-welcomed") || q.has("selftest")) return;
+      store.set("seg-editor-welcomed", "1"); window.Tutorial.open();
+    });
   window.__editor = { S, toggleDone, showExport, runExport, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, setTool, step, undo, region, inside };   // for selftest.js
   if (new URLSearchParams(location.search).has("selftest")) { const sc = document.createElement("script"); sc.src = "/viewer/editor/selftest.js"; document.body.appendChild(sc); }
 })();

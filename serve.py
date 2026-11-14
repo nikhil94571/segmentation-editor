@@ -7,6 +7,7 @@ qa/decisions.json (one entry per case, overwritten when you change your mind).
 """
 import json
 import os
+import posixpath
 import re
 import tempfile
 import uuid
@@ -20,6 +21,8 @@ import editor_backend as eb
 ROOT = Path(__file__).resolve().parent
 DECISIONS = ROOT / "qa" / "decisions.json"
 PORT = int(os.environ.get("PORT", 8765))
+HOST = os.environ.get("HOST") or ("0.0.0.0" if eb.HOSTED else "127.0.0.1")
+MAX_BODY = 300 * 1024 * 1024                                    # largest single upload accepted
 
 
 def load_decisions():
@@ -46,12 +49,41 @@ class Handler(SimpleHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def end_headers(self):                              # always serve the current files (no stale editor code)
-        self.send_header("Cache-Control", "no-store")
+    def end_headers(self):
+        # always serve the current page and code; the tutorial clips never change, so let the browser keep them
+        clip = self.path.startswith("/viewer/editor/tutorial/")
+        self.send_header("Cache-Control", "public, max-age=86400" if clip else "no-store")
+        if getattr(self, "_new_ws", None):
+            self.send_header("Set-Cookie", f"ws={self._new_ws}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax")
+            self._new_ws = None
         super().end_headers()
 
+    def _enter(self):
+        """Hosted: every browser works in its own workspace, named by a cookie."""
+        self._new_ws = None
+        if not eb.HOSTED:
+            return eb.set_workspace("")
+        m = re.search(r"(?:^|;\s*)ws=([0-9a-f]{32})(?:;|$)", self.headers.get("Cookie", ""))
+        ws = m.group(1) if m else uuid.uuid4().hex
+        if not m:
+            self._new_ws = ws
+        eb.set_workspace(ws)
+
+    def _send(self, f, ctype, download=None):
+        data = Path(f).read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(data)))
+        if download:
+            self.send_header("Content-Disposition", f'attachment; filename="{download}"')
+        self.end_headers()
+        self.wfile.write(data)
+
     def _body(self):
-        return self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        n = int(self.headers.get("Content-Length", 0))
+        if n > MAX_BODY:
+            raise ValueError("That file is too large for this server.")
+        return self.rfile.read(n)
 
     def _editor(self, fn, *a):
         """Run an editor backend call; user-facing problems come back as {error} with a 400."""
@@ -63,7 +95,12 @@ class Handler(SimpleHTTPRequestHandler):
     def do_GET(self):
         url = urlparse(self.path)
         q = parse_qs(url.query)
-        path = url.path
+        path = posixpath.normpath(unquote(url.path))             # "/viewer/../x" must not get past the folder check below
+        self._enter()
+        if path == "/healthz":
+            return self._json({"ok": True})
+        if eb.HOSTED and (path in ("/", "/index.html", "/api/cases") or path.startswith(("/out/", "/exports/"))):
+            path = "/editor" if path in ("/", "/index.html") else "/404"      # the link opens the editor; no QA viewer
         if path in ("/", "/index.html"):
             self.path = "/viewer/index.html"
         elif path == "/editor":
@@ -93,14 +130,27 @@ class Handler(SimpleHTTPRequestHandler):
             return self._editor(eb.load_session, q.get("id", [""])[0])
         elif path == "/api/editor/score.png":
             try:
-                self.path = "/" + str(eb.score_png(q.get("id", [""])[0]).relative_to(ROOT))
+                return self._send(eb.score_png(q.get("id", [""])[0]), "image/png")
             except (ValueError, FileNotFoundError):
                 return self.send_error(404)
+        elif path == "/api/editor/tissue.jpg":
+            try:
+                return self._send(eb.tissue_view(q.get("id", [""])[0]), "image/jpeg")
+            except (ValueError, FileNotFoundError):
+                return self.send_error(404)
+        elif path == "/api/editor/download":
+            try:
+                f = eb.download_path(q.get("name", [""])[0])
+            except ValueError:
+                return self.send_error(404)
+            return self._send(f, "application/zip", f.name)
         elif path == "/api/editor/rethreshold":
             return self._editor(eb.rethreshold, q.get("id", [""])[0], int(q.get("label", ["0"])[0]),
                                 float(q.get("t", ["0.5"])[0]))
-        elif not path.startswith(("/out/", "/viewer/", "/sessions/", "/exports/")) or "/_uploads/" in path:
+        elif not path.startswith(("/out/", "/viewer/", "/exports/")) or "/." in path:
             return self.send_error(404)
+        else:
+            self.path = path
         if path.endswith(".mp4") and self.headers.get("Range"):
             return self._ranged(path)
         return super().do_GET()
@@ -131,19 +181,28 @@ class Handler(SimpleHTTPRequestHandler):
     def do_POST(self):
         url = urlparse(self.path)
         q = parse_qs(url.query)
+        self._enter()
+        try:
+            return self._post(url, q)
+        except ValueError as e:                                  # e.g. an upload over the size limit
+            return self._json({"error": str(e)}, 413)
+
+    def _post(self, url, q):
+        if eb.HOSTED and url.path in ("/api/editor/selftest", "/api/editor/choose-folder", "/api/editor/reveal", "/api/decision"):
+            return self.send_error(404)
         if url.path == "/api/editor/library/put":       # one file of a library being imported (raw body)
             return self._editor(eb.library_put, q.get("id", [""])[0], q.get("path", [""])[0], self._body())
         if url.path == "/api/editor/upload":            # raw file body -> a token for the import call
             name = re.sub(r"[^a-zA-Z0-9._-]+", "_", q.get("name", ["file"])[0])[-80:]
-            eb.UPLOADS.mkdir(parents=True, exist_ok=True)
+            eb.uploads().mkdir(parents=True, exist_ok=True)
             token = f"{uuid.uuid4().hex[:12]}__{name}"
-            (eb.UPLOADS / token).write_bytes(self._body())
+            (eb.uploads() / token).write_bytes(self._body())
             return self._json({"token": token})
         body = json.loads(self._body() or b"{}")
         if url.path == "/api/editor/import":
             files = {}
             for role, token in (body.get("files") or {}).items():
-                f = eb.UPLOADS / Path(str(token)).name
+                f = eb.uploads() / Path(str(token)).name
                 if f.exists():
                     files[role] = f
             return self._editor(lambda: eb.add_single(eb.import_session(
@@ -159,7 +218,8 @@ class Handler(SimpleHTTPRequestHandler):
         if url.path == "/api/editor/library/done":
             return self._editor(eb.set_done, body.get("id", ""), int(body.get("index", 0)), bool(body.get("done")))
         if url.path == "/api/editor/library/export":
-            return self._editor(eb.export_library, body.get("id", ""), body.get("dest"), body.get("formats"), body.get("job"))
+            return self._editor(eb.export_library, body.get("id", ""), None if eb.HOSTED else body.get("dest"),
+                                body.get("formats"), body.get("job"))
         if url.path == "/api/editor/library/open":
             return self._editor(eb.open_library_case, body.get("id", ""), int(body.get("index", 0)))
         if url.path == "/api/editor/selftest":            # results of viewer/editor/selftest.js
@@ -169,8 +229,8 @@ class Handler(SimpleHTTPRequestHandler):
         if url.path == "/api/editor/save":
             return self._editor(eb.save_state, body.get("id", ""), body.get("state"))
         if url.path == "/api/editor/export":
-            return self._editor(eb.export, body.get("id", ""), body.get("regions", []), body.get("stem"), body.get("dest"),
-                                body.get("formats"), body.get("job"))
+            return self._editor(eb.export, body.get("id", ""), body.get("regions", []), body.get("stem"),
+                                None if eb.HOSTED else body.get("dest"), body.get("formats"), body.get("job"), True)
         if url.path == "/api/editor/choose-folder":
             return self._editor(eb.choose_folder)
         if url.path == "/api/editor/reveal":
@@ -190,5 +250,8 @@ class Handler(SimpleHTTPRequestHandler):
 
 
 if __name__ == "__main__":
-    print(f"QA viewer: http://127.0.0.1:{PORT}   Editor: http://127.0.0.1:{PORT}/editor   (Ctrl+C to stop)")
-    ThreadingHTTPServer(("127.0.0.1", PORT), Handler).serve_forever()
+    if eb.HOSTED:
+        print(f"Hosted editor on {HOST}:{PORT} (data in {eb.DATA}); removed {eb.sweep_workspaces()} old workspaces", flush=True)
+    else:
+        print(f"QA viewer: http://127.0.0.1:{PORT}   Editor: http://127.0.0.1:{PORT}/editor   (Ctrl+C to stop)")
+    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()

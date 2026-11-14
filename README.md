@@ -7,6 +7,30 @@ Setup: `python -m venv .venv && .venv/bin/pip install -r requirements.txt`
 (on Windows: `py -m venv .venv` then `.venv\Scripts\pip install -r requirements.txt`, and use `.venv\Scripts\python` wherever
 this page says `.venv/bin/python`).
 
+## Hosting it (a link anyone can open)
+
+`HOSTED=1 .venv/bin/python serve.py` runs the editor for people who only have a link:
+
+- the link opens the editor with six practice images loaded and the tutorial open on a first visit;
+- every browser gets its own private workspace (a cookie), so visitors never see each other's edits or uploads;
+- Export downloads a .zip instead of writing to a folder; the folder chooser and other desktop-only parts are off;
+- workspaces untouched for 14 days are deleted when the server starts. There are no accounts and no database.
+
+With Fly.io (`fly.toml` and `Dockerfile` are in the repository; change the app name in `fly.toml` first):
+
+```bash
+fly auth login
+fly launch --copy-config --no-deploy     # accept the settings, pick the app name
+fly deploy                               # the link is https://<app name>.fly.dev
+```
+
+Any host that runs a Dockerfile works the same way (Render, Railway, a lab server): it listens on `$PORT`
+(8080 in the container) and needs about 1 GB of memory. Data lives in `$DATA_DIR` (`/data`), which is lost
+on a redeploy unless a disk is attached there; for a demo that is fine.
+
+It is a demo server, not a secure one: there is no login, and anyone with the link can upload images. The
+Open dialog says so and asks people not to upload confidential or patient images.
+
 ## Two routes, one output
 
 A segmentation model outputs a **probability map** (0–1 per pixel), thresholded to a **mask**. The blue
@@ -31,8 +55,8 @@ filled translucent blue**, so the outline *is* the shading and edits move the bl
 the model route).
 
 Editing in ImageJ: Image › Overlay › **To** ROI Manager → click region → drag handles, or Shift-draw to add /
-Alt-draw to cut → Update → Image › Overlay › **From** ROI Manager → Save. Regions with real holes are composite
-shapes (no handles; edit with Shift/Alt). `--min-hole N` fills holes under N px to keep handles (trade-off below).
+Alt-draw to cut → Update → Image › Overlay › **From** ROI Manager → Save. Every outline is a plain polygon with
+handles; a hole is its own cyan polygon named `<region>-hole-K`. `--min-hole N` fills holes under N px.
 
 ## Segmentation editor (the custom UI)
 
@@ -45,7 +69,8 @@ An easier alternative to correcting outlines in ImageJ.
 - **Libraries:** Open → Libraries. Import a folder (or a .zip of it) and each file is recognised and grouped into
   one case per image: image + probability map or mask, a shaded image, an ImageJ .tif, or an image + RoiSet. Step
   through with the previous/next buttons in the top bar (`[` and `]`); each image is saved as you leave it. Libraries
-  can be renamed, deleted, or switched ("Work on this"). The 15 practice cases are the built-in "Practice cases" library.
+  can be renamed, deleted, or switched ("Work on this"). Six practice images (`data/practice/`, model outputs for
+  images in `data/tissue_2k/`) are the built-in "Practice images" library, opened by default on a first visit.
 - **Preview, done, export all:** in the library list, one click previews an image beside the dialog and a second
   click (or Enter) opens it. "Mark done" (D, at the foot of the side panel) marks the image finished. Export opens a
   menu: this image or the whole library, and the folder to save in (a Finder folder chooser; the last folder is
@@ -70,8 +95,9 @@ An easier alternative to correcting outlines in ImageJ.
   re-cuts the region from the model's probability map (even grow/shrink by distance when there is no map), delete.
   There is no accept/reject: the exported mask against the model's mask already records what was removed.
 - **Also:** undo/redo, zoom/pan, fill opacity, model's original outline, probability heatmap, autosave per image.
-- **Tutorial:** the Tutorial button opens a scrolling guide with a short clip of every action (20 steps, from opening
-  an image to exporting). The clips are recorded from the real editor; see `tutorial/README.md`.
+- **Tutorial:** opens by itself on a first visit, and from the Tutorial button after that. A quick start (eight
+  steps, enough to correct an image) comes first, then more tools for later. Every step has a short clip recorded
+  from the real editor; see `tutorial/README.md`.
 - **Exports:** mask PNG, shaded PNG, ImageJ .tif with editable regions, RoiSet .zip, QuPath .geojson
   (the ImageJ file is read back and its IoU against the mask is reported).
 

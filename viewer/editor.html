@@ -261,7 +261,25 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 .prog i { display: block; height: 100%; width: 0%; background: var(--accent); border-radius: 4px; transition: width .25s ease; }
 .prog-t { display: flex; justify-content: space-between; font-size: var(--fs-small); color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 
+.dest[hidden] { display: none; }
+.topbar { gap: 8px; }
+.topbar .btn { padding: 7px 9px; }
+.session { flex: 0 0 auto; max-width: 240px; }
+.saved { min-width: 0; }
+.hosted-only { display: none; }
+.hosted .hosted-only { display: block; }
+.tag.proto { margin-left: -4px; }
+a.btn { text-decoration: none; }
 /* ---- tutorial ---- */
+.modal.tut .modal-h { gap: 12px; }
+.tut-intro { margin: 22px 0 0; padding: 16px 18px; border-radius: 14px; background: var(--accent-tint); border: 1px solid var(--accent-line); font-size: 15.5px; line-height: 1.55; color: var(--ink); max-width: 760px; }
+.tut-intro b { font-weight: 600; }
+.tut-part { margin: 34px 0 0; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
+.tut-part span { display: block; font-size: var(--fs-body); font-weight: 400; letter-spacing: 0; color: var(--ink-mute); margin-top: 4px; }
+.tut-part.later { margin-top: 56px; padding-top: 34px; border-top: 2px solid var(--line); }
+.tut-nav h5.part { color: var(--accent); margin-top: 4px; }
+.tut-nav h5.part.later { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
+.tut-go { margin: 26px 0 0 37px; display: flex; align-items: center; gap: 14px; font-size: var(--fs-body); color: var(--ink-soft); }
 .modal.tut { width: 1060px; height: calc(100vh - 40px); }
 .tut-sub { font-size: var(--fs-small); color: var(--ink-mute); margin-top: 2px; }
 .tut-b { display: grid; grid-template-columns: 218px 1fr; min-height: 0; flex: 1; }
@@ -302,7 +320,7 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 <body>
 <div class="app">
   <header class="topbar">
-    <span class="brand">Segmentation editor</span>
+    <span class="brand">Segmentation editor</span><span class="tag proto" title="An early version: things may change or break">Prototype</span>
     <span class="casenav" id="caseNav" hidden>
       <button class="icon-btn" id="prevCase" title="Previous image ( [ )"><svg viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></svg></button>
       <span class="zoom" id="casePos">–</span>
@@ -368,6 +386,7 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
     </div>
     <div data-pane="libs">
       <div class="list" id="libList"></div>
+      <p class="note hosted-only">This is a shared demo server. Anything you upload is stored on it for up to two weeks, so please do not upload confidential or patient images.</p>
       <div class="drop" id="libDrop" tabindex="0" role="button">
         <b>Upload folder</b>
         <span>Drop a folder or a .zip here, or click to choose a folder · <button class="link" id="libZip" type="button">choose a .zip</button></span>
@@ -376,6 +395,7 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
       <div class="err" id="libErr"></div>
     </div>
     <div data-pane="import" hidden>
+      <p class="note hosted-only" style="margin:0 0 12px">This is a shared demo server. Anything you upload is stored on it for up to two weeks, so please do not upload confidential or patient images.</p>
       <div class="card">
         <h4>ImageJ file</h4>
         <div class="field"><span>ImageJ .tif saved with its outlines inside</span><input type="file" id="f_tif" accept=".tif,.tiff"></div>
@@ -431,7 +451,8 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 </div></div>
 
 <div class="backdrop" id="tutModal"><div class="modal tut">
-  <div class="modal-h"><div><h3>Tutorial</h3><p class="tut-sub">Short clips of everything you can do. Scroll down, or jump to a part on the left.</p></div>
+  <div class="modal-h"><div><h3>How to use the editor</h3><p class="tut-sub">Watch the quick start (about two minutes), then try it on the practice images.</p></div>
+    <span class="spacer"></span><button class="btn primary" id="tutStart" data-close>Start practising</button>
     <button class="icon-btn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
   <div class="tut-b"><nav class="tut-nav" id="tutNav"></nav><div class="tut-main" id="tutMain"></div></div>
 </div></div>

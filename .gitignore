@@ -13,3 +13,4 @@ data/cases/
 .DS_Store
 exports/
 settings.json
+workspaces/
