@@ -421,6 +421,7 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
     """regions: [{name, rings: [[[x, y], ...], ...]}] (curves already flattened by the page).
     Writes PNGs + ImageJ + QuPath files to sessions/<id>/export/ and checks the ImageJ file reads back."""
     want = set(formats or FORMATS) & set(FORMATS)
+    split = "holes_split" in (formats or ())        # an option, not a file type: holes as separate ImageJ polygons
     if not want:
         raise ValueError("Choose at least one file type to export.")
     if job:
@@ -452,7 +453,7 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
         for k, i in enumerate(outers):
             holes = [slim[j] for j, dd in enumerate(depth) if dd == depth[i] + 1 and _depths([slim[j], slim[i]])[0] == 1]
             geoms.append((reg["name"] if len(outers) == 1 else f"{reg['name']}.{k + 1}", slim[i], holes))
-            rois += h2.imagej_rois(*geoms[-1])                     # polygons only: all get handles in ImageJ
+            rois += h2.imagej_rois(*geoms[-1], split=split)        # holes are true holes unless asked otherwise
 
     files = {}
     if "mask_png" in want:
@@ -844,6 +845,7 @@ def export_library(lid, dest=None, formats=None, job=None):
     folders = {"mask_png": "masks", "overlay_png": "shaded", "imagej_tif": "imagej", "roiset_zip": "roisets",
                "qupath_geojson": "qupath"}
     want = [f for f in FORMATS if f in set(formats or FORMATS)]
+    opts = [f for f in (formats or ()) if f == "holes_split"]
     if not want:
         raise ValueError("Choose at least one file type to export.")
     for key in want:
@@ -862,7 +864,7 @@ def export_library(lid, dest=None, formats=None, job=None):
         else:
             regions = [{"name": r["name"], "rings": r["rings"]} for r in json.loads((sd / "meta.json").read_text())["regions"]]
         stem = f"{i + 1:03d}_{_slug(c['name'])}"
-        r = export(sid, regions, stem, formats=want)
+        r = export(sid, regions, stem, formats=want + opts)
         if job:
             _progress[job] = {"done": i + 1, "total": len(lib["cases"])}
         for key, url in r["files"].items():

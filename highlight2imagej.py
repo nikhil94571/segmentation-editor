@@ -34,8 +34,10 @@ How it works (three steps; step 1 differs by route):
      route the mask is authoritative, so its holes are kept.
   3. Trace. Each region's outline is traced along pixel boundaries, then simplified (Douglas-Peucker,
      --tolerance px, default 2) to a few dozen vertices, and written as an editable ImageJ polygon with a
-     translucent blue fill. A real (unshaded) hole is its own editable polygon, outlined in cyan and named
-     <region>-hole-K. --tolerance 0 = exact pixel trace (hundreds of vertices).
+     translucent blue fill. A region with a real (unshaded) hole is written as ImageJ's composite shape: one
+     entry, the hole left clear, areas measured correctly; it has no handles and is adjusted in ImageJ by
+     Shift/Alt-drawing or the selection brush. --split-holes writes each hole as its own cyan polygon named
+     <region>-hole-K instead, so every outline has handles. --tolerance 0 = exact pixel trace (hundreds of vertices).
 """
 import argparse
 import csv
@@ -45,7 +47,7 @@ from pathlib import Path
 import numpy as np
 import tifffile
 from PIL import Image
-from roifile import ImagejRoi, ROI_TYPE, roiwrite
+from roifile import ImagejRoi, ROI_OPTIONS, ROI_TYPE, roiwrite
 from scipy import ndimage as ndi
 from skimage.color import rgb2hsv
 from skimage.measure import approximate_polygon, find_contours, label, regionprops
@@ -155,14 +157,29 @@ def _signed_area(xy):
 HOLE_STROKE = b"\xff\x00\xc8\xff"                              # cyan outline for holes
 
 
-def imagej_rois(name, outer, holes):
-    """Every outline is a plain polygon, so ImageJ gives each one draggable handles.
-    The region is a blue-filled polygon; each hole is its own unfilled cyan polygon named
-    <region>-hole-K (ImageJ's composite shape would keep the hole unshaded but has no handles).
-    imagej2mask.py cuts the '-hole-' polygons back out of their region."""
+def imagej_rois(name, outer, holes, split=False):
+    """A region without holes is a plain blue-filled polygon with draggable handles.
+    With holes it is ImageJ's composite shape: one entry whose holes are really empty, so it looks right and
+    measures right. ImageJ gives composite shapes no handles; they are adjusted by Shift/Alt-drawing or the
+    selection brush, or split into polygons with ROI Manager > More > Split.
+    split=True writes that split form instead: the region as a filled polygon and each hole as its own
+    unfilled cyan polygon named <region>-hole-K, all with handles (the region then measures as if it had no
+    holes; imagej2mask.py cuts the '-hole-' polygons back out)."""
     region = ImagejRoi.frompoints(outer.astype(np.float32), name=name)
     region.roitype = ROI_TYPE.POLYGON
     region.fill_color, region.stroke_color, region.stroke_width = FILL, STROKE, 1
+    if holes and not split:
+        path = []
+        for ring in [outer if _signed_area(outer) >= 0 else outer[::-1]] + [h if _signed_area(h) < 0 else h[::-1] for h in holes]:
+            path += [0, *ring[0]]
+            for x, y in ring[1:]:
+                path += [1, x, y]
+            path += [4]
+        region.roitype, region.options = ROI_TYPE.RECT, ROI_OPTIONS(0)
+        region.n_coordinates, region.integer_coordinates, region.subpixel_coordinates = 0, None, None
+        region.multi_coordinates = np.asarray(path, dtype=np.float32)
+        region.shape_roi_size = len(path)
+        return [region]
     out = [region]
     for k, h in enumerate(holes, 1):
         hole = ImagejRoi.frompoints(h.astype(np.float32), name=f"{name}-hole-{k}")
@@ -172,9 +189,9 @@ def imagej_rois(name, outer, holes):
     return out
 
 
-def region_rois(mask, tolerance=2.0):
+def region_rois(mask, tolerance=2.0, split_holes=False):
     geoms, rows = region_geometry(mask, tolerance)
-    return [r for g in geoms for r in imagej_rois(*g)], rows
+    return [r for g in geoms for r in imagej_rois(*g, split=split_holes)], rows
 
 
 def unshade(rgb, mask):
@@ -240,7 +257,7 @@ def shaded_mask(rgb, original=None, min_area=200, min_hole=200):
 
 
 def convert(out_dir, image=None, mask=None, prob=None, overlay=None, threshold=0.5,
-            min_area=200, min_hole=200, tolerance=2.0, stem=None):
+            min_area=200, min_hole=200, tolerance=2.0, stem=None, split_holes=False):
     """Two routes to the same editable ImageJ file:
 
     Model-output route (the real one):  image + mask, or image + prob (thresholded at `threshold`).
@@ -277,7 +294,7 @@ def convert(out_dir, image=None, mask=None, prob=None, overlay=None, threshold=0
         lab = label(m, connectivity=2)
         for row, r in zip(rows, sorted(regionprops(lab, intensity_image=p), key=lambda r: -r.area)):
             row["mean_prob"] = round(float(r.intensity_mean), 3)
-    rois = [r for g in geoms for r in imagej_rois(*g)]
+    rois = [r for g in geoms for r in imagej_rois(*g, split=split_holes)]
     roi_path = out_dir / f"{stem}_RoiSet.zip"
     roi_path.unlink(missing_ok=True)
     if rois:
@@ -308,8 +325,11 @@ if __name__ == "__main__":
     ap.add_argument("--threshold", type=float, default=0.5, help="probability cut-off for --prob")
     ap.add_argument("--min-area", type=int, default=200, help="drop regions smaller than this (px)")
     ap.add_argument("--min-hole", type=int, default=200, help="fill holes smaller than this (px)")
+    ap.add_argument("--split-holes", action="store_true",
+                    help="write each hole as its own polygon with handles, not as a true hole in its region")
     ap.add_argument("--tolerance", type=float, default=2.0,
                     help="max outline simplification in px (0 = exact pixel trace, many vertices)")
     a = ap.parse_args()
-    r = convert(a.out_dir, a.image, a.mask, a.prob, a.overlay, a.threshold, a.min_area, a.min_hole, a.tolerance)
+    r = convert(a.out_dir, a.image, a.mask, a.prob, a.overlay, a.threshold, a.min_area, a.min_hole, a.tolerance,
+                split_holes=a.split_holes)
     print(f"[{r['route']}] {len(r['rows'])} regions, {int(r['mask'].sum())} px -> {r['tif']}")

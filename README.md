@@ -75,8 +75,11 @@ translucent blue, so edits move the blue), plus `_RoiSet.zip`, `_QuPath.geojson`
 `_regions.csv` (with the mean model probability per region when a probability map was given).
 
 In ImageJ: Image › Overlay › **To** ROI Manager → click a region → drag its handles → Update →
-Image › Overlay › **From** ROI Manager → Save. Every outline is a plain polygon with handles; a hole is its own
-cyan polygon named `<region>-hole-K`, which `imagej2mask.py` cuts back out.
+Image › Overlay › **From** ROI Manager → Save. A region without holes is a plain polygon with handles. A region
+with holes is ImageJ's composite shape: one entry, the holes really empty, so it measures correctly; ImageJ gives
+those no handles, and they are adjusted by Shift-drawing to add, Alt-drawing to cut, or the selection brush.
+`--split-holes` (or the tick-box in the editor's Export dialog) writes each hole as its own polygon named
+`<region>-hole-K` instead, so everything has handles; `imagej2mask.py` reads both forms.
 
 ## Hosting it
 

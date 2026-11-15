@@ -512,6 +512,7 @@
       <div class="dest" ${st.hosted ? "hidden" : ""}><span>Save in</span><input type="text" class="path" id="exDest" value="${esc(tilde(dest, st.home))}" title="The folder to save in. Choose it, or type a path." spellcheck="false"><button class="btn" id="exChoose">Choose…</button></div>
       <div class="fmt-h">Files to write</div>
       <div class="fmts">${FORMATS.map(([k, label]) => `<label class="check"><input type="checkbox" name="exFmt" value="${k}" ${fmts.includes(k) ? "checked" : ""}> ${label}</label>`).join("")}</div>
+      <label class="check ex-opt"><input type="checkbox" id="exSplit" ${store.get("seg-editor-holes") === "split" ? "checked" : ""}> <span>ImageJ: holes as separate outlines with handles<span>Otherwise a hole is a true hole in its region: it measures correctly, but ImageJ gives it no handles.</span></span></label>
       <div class="err" id="exErr"></div>
       <div class="actions"><button class="btn" id="exCancel">Cancel</button><button class="btn primary" id="exGo">Export</button></div>`;
     $("exportModal").classList.add("show");
@@ -527,7 +528,8 @@
       store.set("seg-editor-formats", JSON.stringify(chosen));
       const typed = $("exDest").value.trim();                   // "~" stands for the home folder
       if (typed) dest = typed === "~" || /^~[\\/]/.test(typed) ? st.home + typed.slice(1) : typed;
-      runExport(document.querySelector("input[name=exScope]:checked").value, lib, dest, chosen);
+      const split = $("exSplit").checked; store.set("seg-editor-holes", split ? "split" : "");
+      runExport(document.querySelector("input[name=exScope]:checked").value, lib, dest, split ? chosen.concat("holes_split") : chosen);
     };
   }
   async function runExport(scope, lib, dest, formats) {
