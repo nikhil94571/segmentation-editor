@@ -95,7 +95,7 @@ An easier alternative to correcting outlines in ImageJ.
   re-cuts the region from the model's probability map (even grow/shrink by distance when there is no map), delete.
   There is no accept/reject: the exported mask against the model's mask already records what was removed.
 - **Also:** undo/redo, zoom/pan, fill opacity, model's original outline, probability heatmap, autosave per image.
-- **Tutorial:** opens by itself on a first visit, and from the Tutorial button after that. A quick start (eight
+- **Tutorial:** opens by itself on a first visit, and from the Tutorial button after that. A quick start guide (seven
   steps, enough to correct an image) comes first, then more tools for later. Every step has a short clip recorded
   from the real editor; see `tutorial/README.md`.
 - **Exports:** mask PNG, shaded PNG, ImageJ .tif with editable regions, RoiSet .zip, QuPath .geojson

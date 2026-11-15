@@ -9,15 +9,11 @@
 
   // clip: [file, width, height, optional caption]
   const parts = (hosted) => [
-    { title: "Quick start", note: "Eight short steps. Enough to correct an image from start to finish.", chapters: [
+    { title: "Quick start guide", chapters: [
       { steps: [
         { id: "open", nav: "The practice images", title: "The practice images are already open",
           text: `Six practice images are loaded, each with a model's blue regions to correct. The arrows at the top left step through them. <b>Open…</b> lists them all: click an image once to preview it, and again to open it.`,
           clips: [["01-open", 1280, 760]] },
-        { id: "zoom", nav: "Zoom and move around", title: "Zoom and move around",
-          text: `Pinch on a trackpad, or hold ${k("⌘")} and scroll, to zoom in where the pointer is. Drag empty space to move around. <b>Fit</b> shows the whole image again.`,
-          tip: `The ${k("+")} and ${k("−")} buttons at the top zoom too.`,
-          clips: [["02-zoom", 1280, 760]] },
         { id: "select", nav: "Select a region", title: "Select a region",
           text: `Click a region on the image, or its name in the list on the right. Orange nodes appear on its outline: that is the region you are working on. ${k("N")} steps to the next region, starting with the ones the model was least sure about.`,
           clips: [["03-select", 1042, 650]] },
@@ -42,6 +38,12 @@
       ] },
     ] },
     { title: "More tools, for later", later: true, note: "Not needed to get started. Come back to these from the Tutorial button at the top.", chapters: [
+      { title: "Moving around the image", note: "", steps: [
+        { id: "zoom", nav: "Zoom and move around", title: "Zoom and move around",
+          text: `Pinch on a trackpad, or hold ${k("⌘")} and scroll, to zoom in where the pointer is. Drag empty space to move around. <b>Fit</b> shows the whole image again.`,
+          tip: `The ${k("+")} and ${k("−")} buttons at the top zoom too.`,
+          clips: [["02-zoom", 1280, 760]] },
+      ] },
       { title: "Finer control of an outline", note: `The Edit tool (the arrow, or ${k("V")}).`, steps: [
         { id: "addnode", nav: "Add or remove a node", title: "Add or remove a node",
           text: `Double-click the line to add a node where you need one, then drag it. Double-click a node to remove it and smooth out a kink.`, clips: [C("06-add-remove-node")] },
@@ -86,10 +88,10 @@
   function build() {
     built = true;
     const hosted = document.documentElement.classList.contains("hosted");
-    let n = 0, nav = "", main = `<div class="tut-intro">This editor is for correcting a segmentation model's regions on tissue images: fix an outline, add what the model missed, remove what it got wrong, then export to ImageJ, QuPath or plain masks. <b>The practice images are open behind this panel.</b> Skim the quick start, then press <b>Start practising</b>. You can come back here any time with the <b>Tutorial</b> button at the top.</div>`;
+    let n = 0, nav = "", main = "";
     for (const part of parts(hosted)) {
       nav += `<h5 class="part ${part.later ? "later" : ""}">${part.title}</h5>`;
-      main += `<div class="tut-part ${part.later ? "later" : ""}">${part.title}<span>${part.note}</span></div>`;
+      main += `<div class="tut-part ${part.later ? "later" : ""}">${part.title}${part.note ? `<span>${part.note}</span>` : ""}</div>`;
       for (const ch of part.chapters) {
         if (ch.title) { nav += `<h5>${ch.title}</h5>`; main += `<div class="tut-chap">${ch.title}${ch.note ? `<span>${ch.note}</span>` : ""}</div>`; }
         for (const s of ch.steps) {
@@ -100,7 +102,6 @@
               <video muted loop playsinline preload="none" poster="${DIR}${f}.jpg" data-src="${DIR}${f}.mp4" aria-label="${s.title}"></video><span class="pp">${PAUSE}</span></div></div>`).join("") + `</section>`;
         }
       }
-      if (!part.later) main += `<div class="tut-go"><button class="btn primary" type="button" data-close>Start practising</button><span>That is all you need. The rest is below for later.</span></div>`;
     }
     main += `<div class="tut-end">That is everything. The <b>Shortcuts</b> button at the top lists every key on one page, and the bar along the bottom of the editor always says what the current tool can do.</div>`;
     $("tutNav").innerHTML = nav; $("tutMain").innerHTML = main;

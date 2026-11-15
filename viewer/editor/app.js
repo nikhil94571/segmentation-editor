@@ -755,6 +755,7 @@
     const nxt = cur === "dark" ? "light" : "dark"; document.documentElement.dataset.theme = nxt;
     try { localStorage.setItem("seg-editor-theme", nxt); } catch (e) {} draw();
   };
+  document.documentElement.dataset.theme = "light";         // starts light whatever the computer is set to; the moon button switches
   try { const t = localStorage.getItem("seg-editor-theme"); if (t) document.documentElement.dataset.theme = t; } catch (e) {}
 
   window.addEventListener("keydown", (e) => {

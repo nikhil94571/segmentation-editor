@@ -684,8 +684,6 @@ def _seed_practice():
             if (c / "prob.tif").exists():
                 cases.append({"name": c.name, "route": "model",
                               "files": {"image": f"cases/{c.name}/tissue.png", "model": f"cases/{c.name}/prob.tif"}, "sid": None})
-        for f in sorted((ROOT / "data" / "real").glob("*.png")):
-            cases.append({"name": f.stem, "route": "screenshot", "files": {"overlay": f"real/{f.name}"}, "sid": None})
     if cases:
         _write_lib({"id": "practice", "name": "Practice images", "created": time.strftime("%Y-%m-%d %H:%M"),
                     "root": "data", "own_files": False, "cases": cases})
