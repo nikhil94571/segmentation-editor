@@ -54,7 +54,10 @@ class Handler(SimpleHTTPRequestHandler):
         clip = self.path.startswith("/viewer/editor/tutorial/")
         self.send_header("Cache-Control", "public, max-age=86400" if clip else "no-store")
         if getattr(self, "_new_ws", None):
-            self.send_header("Set-Cookie", f"ws={self._new_ws}; Path=/; Max-Age=2592000; HttpOnly; SameSite=Lax")
+            https = self.headers.get("X-Forwarded-Proto", "").split(",")[0].strip() == "https"
+            # over https the cookie is also sent when the editor is shown inside another site's frame (a Hugging Face Space page)
+            self.send_header("Set-Cookie", f"ws={self._new_ws}; Path=/; Max-Age=2592000; HttpOnly; "
+                             + ("SameSite=None; Secure; Partitioned" if https else "SameSite=Lax"))
             self._new_ws = None
         super().end_headers()
 

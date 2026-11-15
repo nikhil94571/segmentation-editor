@@ -43,10 +43,7 @@
     if (state && state.regions) { S.regions = state.regions; S.counter = state.counter || 0; }
     else {
       S.counter = 0;
-      S.regions = meta.regions.map((r) => ({
-        id: "m" + r.label, name: r.name, source: "model", label: r.label,
-        t: meta.threshold, meanProb: r.mean_prob, edited: false, paths: fitRings(r.rings),
-      })).filter((r) => r.paths.length);
+      S.regions = modelRegions();
     }
     $("sessionName").textContent = meta.name;
     $("empty").style.display = "none";
@@ -57,6 +54,11 @@
     $("saved").textContent = state ? "Saved" : "";
     fitView(); refresh();
   }
+  /* The regions exactly as the model gave them. */
+  const modelRegions = () => S.meta.regions.map((r) => ({
+    id: "m" + r.label, name: r.name, source: "model", label: r.label,
+    t: S.meta.threshold, meanProb: r.mean_prob, edited: false, paths: fitRings(r.rings),
+  })).filter((r) => r.paths.length);
   function heatLayer(scoreImg) {
     const c = document.createElement("canvas"); c.width = scoreImg.width; c.height = scoreImg.height;
     const x = c.getContext("2d"); x.drawImage(scoreImg, 0, 0);
@@ -82,7 +84,7 @@
     catch (e) { $("saved").textContent = "Not saved"; }
   }
   function scheduleSave() {
-    if (!S.sid) return;
+    if (!S.sid || S.demo) return;                               // the tour works on a copy: nothing it does is saved
     savePending = true; $("saved").textContent = "Saving…";
     clearTimeout(saveTimer); saveTimer = setTimeout(saveNow, 700);
   }
@@ -747,6 +749,8 @@
   if (!MAC) document.querySelectorAll("[data-mod]").forEach((e) => { e.textContent = { "⌘Z": "Ctrl+Z", "⇧⌘Z": "Ctrl+Shift+Z", "⌘": "Ctrl" }[e.textContent] || e.textContent; });
   $("undo").title = `Undo (${MOD}${MAC ? "" : "+"}Z)`; $("redo").title = MAC ? "Redo (⇧⌘Z)" : "Redo (Ctrl+Shift+Z or Ctrl+Y)";
   $("tutBtn").onclick = () => window.Tutorial.open(); $("tutEmpty").onclick = () => window.Tutorial.open();
+  const tour = () => window.Tour.start().then((ok) => { if (!ok) window.Tutorial.open(); });   // no practice image, or a small window: the panel instead
+  $("tourBtn").onclick = () => { $("tutModal").classList.remove("show"); window.Tutorial.pause(); tour(); };
   document.querySelectorAll("#openTabs button").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
   document.querySelectorAll("[data-import]").forEach((b) => (b.onclick = () => doImport(b.dataset.import)));
   document.querySelectorAll(".backdrop").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m || e.target.closest("[data-close]")) { m.classList.remove("show"); window.Tutorial.pause(); } }));
@@ -796,10 +800,11 @@
   if (wantLib) window.__ready = useLibrary(wantLib, q.has("i") ? +q.get("i") : null).catch(() => closeImage());
   renderNav();
   api("/api/editor/settings").then((st) => { S.hosted = !!st.hosted; document.documentElement.classList.toggle("hosted", S.hosted); }).catch(() => {})
-    .then(() => {                                               // a first visit starts with the tutorial open
+    .then(() => window.__ready)
+    .then(() => {                                               // a first visit starts with the tour
       if (store.get("seg-editor-welcomed") || q.has("selftest")) return;
-      store.set("seg-editor-welcomed", "1"); window.Tutorial.open();
+      store.set("seg-editor-welcomed", "1"); tour();
     });
-  window.__editor = { S, toggleDone, showExport, runExport, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, setTool, step, undo, region, inside };   // for selftest.js
+  window.__editor = { S, draw, fitView, saveNow, modelRegions, toggleDone, showExport, runExport, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, setTool, step, undo, region, inside };   // for selftest.js
   if (new URLSearchParams(location.search).has("selftest")) { const sc = document.createElement("script"); sc.src = "/viewer/editor/selftest.js"; document.body.appendChild(sc); }
 })();

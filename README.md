@@ -1,180 +1,196 @@
-# Segmentation editor: correct a model's tissue masks, export to ImageJ
+# Segmentation editor
 
-Tools for turning a segmentation model's output on H&E tissue images into editable regions, correcting them in a
-browser editor, and exporting to ImageJ, QuPath and plain masks. Public test data only.
+**Correct a segmentation model's regions on tissue images in the browser, then export them to ImageJ, QuPath or plain masks.**
 
-Setup: `python -m venv .venv && .venv/bin/pip install -r requirements.txt`
-(on Windows: `py -m venv .venv` then `.venv\Scripts\pip install -r requirements.txt`, and use `.venv\Scripts\python` wherever
-this page says `.venv/bin/python`).
+![The editor: zoom in, extend one region, trim another](docs/demo.gif)
 
-## Hosting it (a link anyone can open)
+A segmentation model is usually about right. This editor is for the last part: an expert opens the model's
+output, fixes the outlines that are off, draws what was missed, deletes what is wrong, and exports files that open
+in the tools the lab already uses. The corrected masks can also go straight back into training.
 
-`HOSTED=1 .venv/bin/python serve.py` runs the editor for people who only have a link:
+> **Status: prototype.** Built and tested on public H&E images from Wikimedia Commons only. Not yet used by a
+> person on real lab data, and not yet run on a real Windows machine.
 
-- the link opens the editor with six practice images loaded and the tutorial open on a first visit;
-- every browser gets its own private workspace (a cookie), so visitors never see each other's edits or uploads;
-- Export downloads a .zip instead of writing to a folder; the folder chooser and other desktop-only parts are off;
-- workspaces untouched for 14 days are deleted when the server starts. There are no accounts and no database.
+<!-- Live demo: add the link here once it is deployed (see "Hosting it"). -->
 
-With Fly.io (`fly.toml` and `Dockerfile` are in the repository; change the app name in `fly.toml` first):
+## What it does
+
+| | |
+|---|---|
+| **Opens** | An image with the model's probability map or mask · a shaded image with its original · an ImageJ `.tif` with outlines · an image with an ImageJ RoiSet or QuPath GeoJSON · a whole folder or `.zip` of these |
+| **Edits** | Drag a node or bend a line · draw a new region · extend or trim by redrawing a stretch of outline · cut and remove holes · grow or shrink a region from the model's own probabilities · undo everything |
+| **Guides** | Regions are listed least-confident first, so the expert starts where the model was least sure · probability heatmap · the model's original outline as a dashed line |
+| **Exports** | ImageJ `.tif` with editable regions · ImageJ RoiSet `.zip` · QuPath GeoJSON · mask PNG · shaded PNG, for one image or a whole library |
+| **Teaches** | A first visit starts with a tour in which a pointer works the real editor step by step; the Tutorial button has a short clip for every tool |
+
+## Try it on your computer
+
+Needs Python 3.11 or newer (developed on 3.12).
 
 ```bash
-fly auth login
-fly launch --copy-config --no-deploy     # accept the settings, pick the app name
-fly deploy                               # the link is https://<app name>.fly.dev
+git clone https://github.com/nikhil94571/segmentation-editor && cd segmentation-editor
+python -m venv .venv && .venv/bin/pip install -r requirements.txt
+.venv/bin/python serve.py          # then open http://127.0.0.1:8765/editor
 ```
 
-Any host that runs a Dockerfile works the same way (Render, Railway, a lab server): it listens on `$PORT`
-(8080 in the container) and needs about 1 GB of memory. Data lives in `$DATA_DIR` (`/data`), which is lost
-on a redeploy unless a disk is attached there; for a demo that is fine.
+On Windows: `py -m venv .venv`, then `.venv\Scripts\pip install -r requirements.txt` and
+`.venv\Scripts\python serve.py`.
 
-It is a demo server, not a secure one: there is no login, and anyone with the link can upload images. The
-Open dialog says so and asks people not to upload confidential or patient images.
+It opens with six practice images and the tour. To use your own, click **Open…** and drop in a folder or a `.zip`.
+Files are paired by name: `slide1_image.png` with `slide1_prob.tif` or `slide1_mask.png`.
 
-## Two routes, one output
+## Using the editor
 
-A segmentation model outputs a **probability map** (0–1 per pixel), thresholded to a **mask**. The blue
-"shaded" image is only a visualisation made from the mask for humans. So:
+| Tool | What it does |
+|---|---|
+| **Edit** (`V`) | Drag a node to move it, drag the line to bend it, drag inside a region to move all of it. Double-click the line to add a node, a node to remove it. `Delete` removes the region. Clicking inside a hole selects just the hole. |
+| **Draw** (`P`) | Press, drag, release. Finish where you started to close the shape. Drawn **inside** a region, the shape becomes a hole. A stroke that starts and ends **on an outline** replaces that stretch (extend or trim). Drag back along your line to un-draw. |
+| **Grow / shrink** | A slider that re-cuts the selected region from the model's probability map, so the edge moves most where the model was unsure. Without a probability map it moves the edge evenly. |
+| **Region list** | Least-confident first; `N` steps through it. |
+| **Display** | Fill opacity, the model's original outline (`M`), probability heatmap (`H`). |
+| **Images** | `[` and `]` go to the previous and next image; `D` marks an image done. Work is saved as you go. |
+
+Each region is a few nodes joined by curves (cubic Béziers fitted to the model's outline), so an outline is
+adjusted by moving a handful of points and not hundreds.
+
+## The command-line converter
+
+The same conversion without the editor: model output in, ImageJ and QuPath files out.
 
 ```bash
-# 1. Model-output route (the real one): original image + probability map or mask
+# The model's own output: original image + probability map or mask
 .venv/bin/python highlight2imagej.py out/ --image tissue.png --prob prob.tif      # [--threshold 0.5]
 .venv/bin/python highlight2imagej.py out/ --image tissue.png --mask mask.png      # PNG/TIFF/NPY, binary or labels
 
-# 2. Screenshot route (fallback): only a picture of the shaded result
+# Only a picture of the shaded result
 .venv/bin/python highlight2imagej.py out/ --overlay shaded.png --image tissue.png   # any shading colour
 .venv/bin/python highlight2imagej.py out/ --overlay shaded.png                      # blue shading only
 
-# Back from the expert's edited file to a mask (retraining / measurement)
+# Back from an expert's edited file to a mask (for retraining or measurement)
 .venv/bin/python imagej2mask.py out/x_ImageJ.tif corrected_mask.png
 ```
 
-Both routes write `<name>_ImageJ.tif`: the **clean tissue image with each region as an editable ImageJ shape
-filled translucent blue**, so the outline *is* the shading and edits move the blue. Also written:
-`_QuPath.geojson`, `_RoiSet.zip`, `_tissue.png`, `_mask.png`, `_regions.csv` (incl. mean model probability on
-the model route).
+Each run writes `<name>_ImageJ.tif` (the clean tissue image with every region as an editable ImageJ shape filled
+translucent blue, so edits move the blue), plus `_RoiSet.zip`, `_QuPath.geojson`, `_tissue.png`, `_mask.png` and
+`_regions.csv` (with the mean model probability per region when a probability map was given).
 
-Editing in ImageJ: Image › Overlay › **To** ROI Manager → click region → drag handles, or Shift-draw to add /
-Alt-draw to cut → Update → Image › Overlay › **From** ROI Manager → Save. Every outline is a plain polygon with
-handles; a hole is its own cyan polygon named `<region>-hole-K`. `--min-hole N` fills holes under N px.
+In ImageJ: Image › Overlay › **To** ROI Manager → click a region → drag its handles → Update →
+Image › Overlay › **From** ROI Manager → Save. Every outline is a plain polygon with handles; a hole is its own
+cyan polygon named `<region>-hole-K`, which `imagej2mask.py` cuts back out.
 
-## Segmentation editor (the custom UI)
+## Hosting it
+
+`HOSTED=1 python serve.py` runs the editor for people who only have a link:
+
+- every browser gets its own private workspace (a cookie), so visitors never see each other's edits or uploads;
+- Export downloads a `.zip` instead of writing to a folder on the server;
+- workspaces untouched for 14 days are deleted when the server starts. There are no accounts and no database.
+
+**It is a demo server, not a secure one.** There is no login and anyone with the link can upload images. The
+Open dialog says so and asks people not to upload confidential or patient images.
+
+### Hugging Face Spaces (free)
 
 ```bash
-.venv/bin/python serve.py        # then open http://127.0.0.1:8765/editor
+pip install huggingface_hub && hf auth login       # a token with write access
+python deploy/space.py                             # builds scratch/space/: exactly what would be uploaded
+python deploy/space.py <user>/segmentation-editor  # creates the Space and uploads it
 ```
 
-An easier alternative to correcting outlines in ImageJ.
+The Space builds the `Dockerfile` and serves the editor at `https://<user>-segmentation-editor.hf.space`. Send
+that link, not the `huggingface.co/spaces/…` page. A free Space sleeps after about two days without visitors and
+takes around a minute to wake.
 
-- **Libraries:** Open → Libraries. Import a folder (or a .zip of it) and each file is recognised and grouped into
-  one case per image: image + probability map or mask, a shaded image, an ImageJ .tif, or an image + RoiSet. Step
-  through with the previous/next buttons in the top bar (`[` and `]`); each image is saved as you leave it. Libraries
-  can be renamed, deleted, or switched ("Work on this"). Six practice images (`data/practice/`, model outputs for
-  images in `data/tissue_2k/`) are the built-in "Practice images" library, opened by default on a first visit.
-- **Preview, done, export all:** in the library list, one click previews an image beside the dialog and a second
-  click (or Enter) opens it. "Mark done" (D, at the foot of the side panel) marks the image finished. Export opens a
-  menu: this image or the whole library, and the folder to save in (a Finder folder chooser; the last folder is
-  remembered). You tick which file types to write, and a progress bar shows how far it has got. A library export writes
-  a folder per chosen type (`masks/`, `shaded/`, `imagej/`, `roisets/`, `qupath/`) and `summary.csv`.
-- **ImageJ output:** every outline is a plain polygon, so each one has draggable handles in ImageJ. A hole is its
-  own unfilled cyan polygon named `<region>-hole-K` (so the hole area looks shaded in ImageJ; `imagej2mask.py`
-  cuts it back out).
-- **Single file:** Open → Single file takes an ImageJ .tif with its outlines inside, a shaded image **with its
-  original** (required: the shading is found by comparing the two, so any colour works), an image + separate
-  outlines, or model output; it joins the "Single imports" library. A library folder may still hold a lone shaded
-  image, which is read only if the shading is blue.
-- **Shapes:** each region is a few nodes joined by lines you bend by dragging the line itself (cubic Béziers,
-  fitted with Schneider's algorithm; corners kept).
-- **Edit (V):** drag a node, drag the line to bend it, drag inside a region to move all of it, double-click a line
-  to add a node or a node to remove it, Delete removes the region. Clicking inside a hole selects just the hole
-  (Delete removes it, dragging moves it).
-- **Draw (P):** press-drag-release draws; press the open end to continue; finish on the first node to close; drag back
-  along your line to un-draw; Backspace removes the last node. A shape drawn **inside** a region cuts a hole in it.
-  A stroke that starts and ends on an outline **reroutes** that stretch (grows or shrinks the region, or a hole).
-- **Region panel:** regions listed least-confident first (N steps through them), a **grow/shrink slider** that
-  re-cuts the region from the model's probability map (even grow/shrink by distance when there is no map), delete.
-  There is no accept/reject: the exported mask against the model's mask already records what was removed.
-- **Also:** undo/redo, zoom/pan, fill opacity, model's original outline, probability heatmap, autosave per image.
-- **Tutorial:** opens by itself on a first visit, and from the Tutorial button after that. A quick start guide (seven
-  steps, enough to correct an image) comes first, then more tools for later. Every step has a short clip recorded
-  from the real editor; see `tutorial/README.md`.
-- **Exports:** mask PNG, shaded PNG, ImageJ .tif with editable regions, RoiSet .zip, QuPath .geojson
-  (the ImageJ file is read back and its IoU against the mask is reported).
+### Fly.io, or anything that runs a Dockerfile
 
-Files: `viewer/editor.html`, `viewer/editor/app.js` (canvas app), `viewer/editor/geom.js` (geometry, no DOM),
-`editor_backend.py` (import, libraries, slider re-cut, export), `libraries/` (one folder per library), `sessions/` (one folder per opened image).
-Self-test: `viewer/editor/selftest.js` drives the real page with synthetic pointer events
-(`/editor?lib=practice&i=3&selftest=1`, results in `scratch/selftest.json`); last run 11 Nov: all steps passed, console clean.
-The folder/zip picker itself was not exercised by the self-test (the grouping behind it was, on a mixed test folder).
-Not yet tested by a person with a real mouse/trackpad.
+```bash
+fly auth login
+fly launch --copy-config --no-deploy     # change the app name in fly.toml first
+fly deploy                               # https://<app name>.fly.dev
+```
 
-## How it works (`highlight2imagej.py`)
+The container listens on `$PORT` (8080) and keeps its data in `$DATA_DIR` (`/data`), which is lost on a redeploy
+unless a disk is attached there. Allow about 1 GB of memory.
 
-1. **Mask.** Model route: threshold the probability map, or read the mask (authoritative). Screenshot route
-   with the original image: the shading is wherever the two pictures differ, so its colour does not matter
-   (`overlay_detect.py`). Screenshot route without it (blue shading only):
-   a pixel is a candidate if its hue is blue (190–262°); a candidate region is kept only if it contains a solid
-   core where **smoothed blue-minus-red > 85**. Blending towards blue raises that everywhere the shading covers,
-   while stain raises it only on scattered nuclei. This works whatever the underlying tissue hue; an earlier
-   hue-only core failed on deep-magenta tissue (IoU 0.20). Holes whose colour matches the shading are filled.
-   The blue is then un-blended (45% towards RGB 10,80,235) to recover a clean base image.
-2. **Tidy.** Drop specks < `--min-area` (200 px); fill holes < `--min-hole` (200 px).
-3. **Outline.** Trace, simplify (`--tolerance 2` px, Douglas-Peucker) and write editable ImageJ polygons with a
-   blue fill; regions with holes are composite shapes.
+Neither deployment has been run yet: the container has not been built on a real host.
 
-## Realistic test data
+## How well it works
 
-- `prepare_tissue.py`: 11 pink breast H&E images (Wikimedia Commons) matched to the real example's look and
-  cropped to 2048×2048 (2 CC0 ones only exist at 1532×1532; not upscaled). Licences: `data/tissue/SOURCES.json`.
-- `make_cases.py`, per tile: `expert.png` (ground truth); `prob.tif`, a float32 **probability map** like a
-  segmentation head's output (soft edges, ~0.95 inside, a lower-confidence false positive, sub-threshold
-  "maybe" areas, noise); `mask.png` = prob ≥ 0.5; `overlay.png` = mask rendered in blue (the "screenshot").
-  The model is deliberately imperfect: **model vs expert Dice 0.83** (a realistic "about 80% right" model). Every third tile also has a
-  **grid** variant (mean probability per 100 px cell).
-
-## QA viewer
-
-`run_all.py` runs every case through **both routes** (31 entries incl. the real example), then
-`serve.py` → http://127.0.0.1:8765. Left: the route's actual input (probability heatmap or screenshot).
-Right: outlines with handles · ImageJ mask · conversion check (vs the model's mask) · vs expert.
-Approve/Decline + comment → `qa/decisions.json`.
-
-## Results (11 Nov 2026; measured on regions read back from the saved .tif)
+Measured on 11 Nov 2026, on regions read back from the saved `.tif`:
 
 | Check | Result |
 |---|---|
-| Model-output route: regions vs model mask (IoU) | mean **0.984**, min 0.954 (grid cases exact) |
-| Screenshot route: regions vs model mask (IoU) | mean **0.975**, min 0.870 (bluish-stain slide) |
-| Exact mode (`--tolerance 0`) stress test, 507 masks | **507/507 pixel-exact** |
-| .tif overlay vs RoiSet vs QuPath GeoJSON | identical masks |
-| Regions with holes (no handles) at `--min-hole` 200 / 1000 / 2000 | 20 / 11 / 4 of 46 (IoU cost ≈ 0 / 1% / 2%) |
-| Real ImageJ (by hand) | single .tif opens with outlines; editing worked; the earlier baked-in blue did not move (fixed) |
+| Model output → regions, against the model's mask (IoU) | mean **0.984**, lowest 0.954 |
+| Shaded picture → regions, against the model's mask (IoU) | mean **0.975**, lowest 0.870 (a bluish-stained slide) |
+| Exact mode (`--tolerance 0`), 507 masks | **507 of 507 pixel-exact** |
+| ImageJ `.tif`, RoiSet and QuPath GeoJSON | identical masks |
+| Shading of any colour, with the original image (`tests_overlay.py`: ten colours, three opacities) | mean IoU **0.985** |
+| Editor self-test (`viewer/editor/selftest.js`, 33 checks through the real page) | all pass, 15 Nov 2026 |
 
-Known limit (screenshot route only): on a bluish-stained slide, a cluster of bluish nuclei touching or near the
-shading can be included. The model route has no such issue.
+Known limits:
 
-## Shading colour, and Windows
+- **A shaded picture without its original** is only read if the shading is blue, and on a bluish-stained slide a
+  cluster of bluish nuclei touching the shading can be included. With the original image, or with the model's own
+  output, neither applies.
+- **Still to confirm by hand:** the full round trip in Fiji (edit, save, `imagej2mask.py`) and QuPath's import of
+  the GeoJSON.
+- **Windows and Linux** use the system folder chooser and Ctrl shortcuts; checked in a browser pretending to be
+  Windows only.
 
-- **Any colour needs the original image.** `tests_overlay.py` re-shades the 11 tissue images in ten colours at three
-  opacities and compares shaded against original: mean IoU 0.985 (0.999 for every colour except faint pink, purple
-  and white, where tissue of nearly the overlay's own colour barely changes). Both pictures JPEG-compressed, or a
-  soft-edged overlay: 0.93 to 0.97. In a library, name the pair `x_image.png` + `x_overlay.png` (or `_shaded`).
-- **Without the original, only blue shading is found.** A colour-free detector (the overlay's edge as one consistent
-  colour step) was tried on 11-13 Nov and dropped: it worked on crisp synthetic overlays, but not on compressed or
-  resized pictures or the real example, and needed thresholds tuned to these images.
-- **Windows and Linux:** the folder chooser uses the system dialog (PowerShell on Windows, zenity or kdialog on Linux),
-  the export folder can also be typed, "Show folder" opens the file manager, and shortcuts read Ctrl instead of ⌘
-  (Ctrl+Y also redoes). Checked in a browser pretending to be Windows; not yet run on a real Windows machine.
-  The tutorial clips were recorded on a Mac, so their key badges show ⌘.
+<details>
+<summary><b>How the conversion works</b></summary>
 
-## Still to confirm
+1. **Mask.** From the model's output: threshold the probability map, or read the mask. From a shaded picture with
+   its original: the shading is wherever the two pictures differ, so its colour does not matter
+   (`overlay_detect.py`). From a shaded picture alone (blue only): a pixel is a candidate if its hue is blue
+   (190–262°), and a candidate region is kept only if it contains a solid core where smoothed blue-minus-red is
+   above 85. Blending towards blue raises that everywhere the shading covers, while stain raises it only on
+   scattered nuclei. The blue is then un-blended to recover a clean base image.
+2. **Tidy.** Drop specks under `--min-area` (200 px); fill holes under `--min-hole` (200 px).
+3. **Outline.** Trace, simplify (`--tolerance 2` px, Douglas-Peucker) and write editable ImageJ polygons with a
+   blue fill.
 
-- In Fiji: the filled shapes follow edits (To ROI Manager → edit → Update → From ROI Manager → save → `imagej2mask.py`).
-- QuPath import of the GeoJSON.
+A colour-free detector for shaded pictures without the original (the overlay's edge as one consistent colour
+step) was tried on 11–13 Nov 2026 and dropped: it worked on crisp synthetic overlays, but not on compressed or
+resized pictures, and needed thresholds tuned to these images.
+
+</details>
+
+<details>
+<summary><b>Test data</b></summary>
+
+- `prepare_tissue.py`: 11 breast H&E images from Wikimedia Commons, cropped to 2048 × 2048 (two exist only at
+  1532 × 1532 and are not upscaled).
+- `make_cases.py`, per image: `expert.png` (ground truth); `prob.tif`, a float32 probability map shaped like a
+  segmentation head's output (soft edges, about 0.95 inside, a lower-confidence false positive, sub-threshold
+  "maybe" areas, noise); `mask.png` (probability ≥ 0.5); `overlay.png` (the mask drawn in blue).
+  **These are simulated model outputs, not the output of a trained network.** The simulated model is
+  deliberately imperfect: Dice 0.83 against the expert mask.
+- `data/practice/` holds six of these probability maps; with their images in `data/tissue_2k/` they are the
+  built-in "Practice images" library.
+- `run_all.py` runs every case through both routes; `serve.py` then shows them side by side at
+  http://127.0.0.1:8765 with approve/decline buttons (`qa/decisions.json`).
+
+</details>
+
+<details>
+<summary><b>What is where</b></summary>
+
+| Path | What |
+|---|---|
+| `highlight2imagej.py`, `imagej2mask.py`, `overlay_detect.py` | The converter, the way back to a mask, shading detection |
+| `serve.py`, `editor_backend.py` | The server: import, libraries, grow/shrink re-cut, export, hosted workspaces |
+| `viewer/editor.html`, `viewer/editor/app.js`, `geom.js` | The editor page, the canvas app, the geometry (no DOM) |
+| `viewer/editor/tour.js`, `tutorial.js`, `tutorial/` | The first-visit tour, the Tutorial panel, its clips |
+| `tutorial/` | The recorder that makes the clips from the real editor (`tutorial/README.md`) |
+| `deploy/`, `Dockerfile`, `fly.toml` | Hosting |
+| `tests_roundtrip.py`, `tests_overlay.py`, `verify_roiset.py` | Checks |
+
+</details>
 
 ## Data and licences
 
 `data/tissue_2k/` holds 11 H&E images from Wikimedia Commons, cropped to squares. Authors, source pages and
 licences (CC0, CC BY-SA 3.0, CC BY-SA 4.0) are listed in `data/tissue_2k/SOURCES.json`; the crops are shared under
-the same licences. Everything else under `data/`, `out/`, `sessions/` and `libraries/` is generated locally
-(`make_cases.py`, `run_all.py`, the editor) and is not in the repository.
+the same licences. Everything else under `data/`, `out/`, `sessions/` and `libraries/` is generated locally and is
+not in the repository.

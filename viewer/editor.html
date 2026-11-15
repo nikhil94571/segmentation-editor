@@ -276,11 +276,40 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 a.btn { text-decoration: none; }
 /* ---- tutorial ---- */
 .modal.tut .modal-h { gap: 12px; }
-.tut-part { margin: 34px 0 0; font-size: 24px; font-weight: 600; letter-spacing: -0.02em; }
-.tut-part span { display: block; font-size: var(--fs-body); font-weight: 400; letter-spacing: 0; color: var(--ink-mute); margin-top: 4px; }
-.tut-part.later { margin-top: 56px; padding-top: 34px; border-top: 2px solid var(--line); }
-.tut-nav h5.part { color: var(--accent); margin-top: 4px; }
-.tut-nav h5.part.later { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--line); }
+.tut-sub { font-size: var(--fs-small); color: var(--ink-mute); margin-top: 2px; }
+/* ---- tour: a pointer works the real editor under a spotlight ---- */
+#tour { display: none; }
+#tour.on { display: block; }
+.tour-block { position: fixed; inset: 0; z-index: 200; }
+.tour-dim { position: fixed; left: 0; top: 0; width: 100vw; height: 100vh; z-index: 201; pointer-events: none; }
+.tour-dim .d { fill: rgba(16,18,40,.58); }
+.tour-dim .r { fill: none; stroke: rgba(255,255,255,.9); stroke-width: 2; }
+.tour-badge { position: fixed; z-index: 202; pointer-events: none; padding: 8px 14px 9px; border-radius: 14px; background: rgba(20,22,46,.86); color: #fff; white-space: nowrap;
+  font-size: 14px; font-weight: 500; box-shadow: 0 10px 30px -10px rgba(20,22,46,.6); opacity: 0; transform: translate(-50%, -6px); transition: opacity .18s, transform .18s; }
+.tour-badge.show { opacity: 1; transform: translate(-50%, 0); }
+.tour-badge b { display: inline-block; min-width: 30px; text-align: center; padding: 2px 9px; border-radius: 8px; background: #fff; color: #14162E; font: 600 14px var(--font-mono); }
+.tour-card { position: fixed; z-index: 203; padding: 14px 18px 15px; border-radius: 18px; background: var(--modal-bg); border: 1px solid var(--glass-edge);
+  box-shadow: var(--shadow-lg); -webkit-backdrop-filter: blur(18px); backdrop-filter: blur(18px); }
+.tour-card [hidden] { display: none; }
+.tour-top { display: flex; align-items: center; gap: 10px; font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-mute); }
+.tour-dots { display: flex; gap: 4px; flex: 1; }
+.tour-dots i { width: 6px; height: 6px; border-radius: 50%; background: var(--line); }
+.tour-dots i.seen { background: var(--ink-faint); }
+.tour-dots i.on { background: var(--accent); }
+.tour-skip { text-transform: none; letter-spacing: 0; }
+.tour-card h4 { font-size: 19px; font-weight: 600; letter-spacing: -0.01em; margin: 9px 0 4px; }
+.tour-text { font-size: 14.5px; line-height: 1.5; color: var(--ink-soft); }
+.tour-text b { font-weight: 600; color: var(--ink); }
+.tour-btns { display: flex; align-items: center; gap: 8px; margin-top: 13px; }
+.tour-cur { position: fixed; left: 0; top: 0; z-index: 205; pointer-events: none; will-change: transform; }
+.tour-cur svg { position: absolute; filter: drop-shadow(0 1.5px 2px rgba(0,0,0,.35)); transition: transform .08s; }
+.tour-cur .a { left: -2.5px; top: -2.5px; transform-origin: 2px 2px; }
+.tour-cur .x { left: -17px; top: -17px; transform-origin: 17px 17px; display: none; }
+.tour-cur.cross .a { display: none; }
+.tour-cur.cross .x { display: block; }
+.tour-cur.down svg { transform: scale(.86); }
+@keyframes tour-ring { from { transform: translate(-50%,-50%) scale(.35); opacity: .6; } to { transform: translate(-50%,-50%) scale(1.5); opacity: 0; } }
+.tour-ring { position: fixed; z-index: 204; pointer-events: none; width: 44px; height: 44px; border-radius: 50%; border: 2.5px solid rgba(79,91,213,.9); background: rgba(79,91,213,.18); animation: tour-ring .5s ease-out forwards; }
 .modal.tut { width: 1060px; height: calc(100vh - 40px); }
 .tut-b { display: grid; grid-template-columns: 218px 1fr; min-height: 0; flex: 1; }
 .tut-nav { overflow-y: auto; padding: 14px 10px 18px 14px; border-right: 1px solid var(--line-soft); }
@@ -454,14 +483,15 @@ a.btn { text-decoration: none; }
 </div></div>
 
 <div class="backdrop" id="tutModal"><div class="modal tut">
-  <div class="modal-h"><div><h3>How to use the editor</h3></div>
-    <span class="spacer"></span><button class="btn primary" id="tutStart" data-close>Start practising</button>
+  <div class="modal-h"><div><h3>Tutorial</h3><p class="tut-sub">Short clips of everything you can do. Scroll down, or jump to a part on the left.</p></div>
+    <span class="spacer"></span><button class="btn" id="tourBtn" type="button">Replay the tour</button>
     <button class="icon-btn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
   <div class="tut-b"><nav class="tut-nav" id="tutNav"></nav><div class="tut-main" id="tutMain"></div></div>
 </div></div>
 
 <script src="/viewer/editor/geom.js"></script>
 <script src="/viewer/editor/tutorial.js"></script>
+<script src="/viewer/editor/tour.js"></script>
 <script src="/viewer/editor/app.js"></script>
 </body>
 </html>
