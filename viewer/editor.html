@@ -266,6 +266,9 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 .prog-t { display: flex; justify-content: space-between; font-size: var(--fs-small); color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 
 .dest[hidden] { display: none; }
+.li.current { cursor: pointer; }
+.li .chev { width: 15px; height: 15px; flex: none; fill: none; stroke: var(--ink-mute); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; margin-right: -2px; }
+.li.shut .chev { transform: rotate(-90deg); }
 .topbar { gap: 8px; }
 .topbar .btn { padding: 7px 9px; }
 .session { flex: 0 0 auto; max-width: 240px; }

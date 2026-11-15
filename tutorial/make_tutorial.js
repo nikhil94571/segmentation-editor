@@ -263,8 +263,8 @@ const scenes = {
     await start(process.env.EDITOR_HOSTED === "1" ? "20-export-hosted" : "20-export", { x: 300, y: 0, w: 980, h: 612 }, { x: 900, y: 420 });
     await R.click(await R.el("#export"), { after: 0.9 });
     await R.click(await R.el('input[name=exScope][value=library]'), { after: 0.6 });
-    await R.click(await R.el('input[name=exFmt][value=overlay_png]'), { after: 0.3 });
-    await R.click(await R.el('input[name=exFmt][value=roiset_zip]'), { after: 0.5 });
+    await R.click(await R.el('input[name=exFmt][value=roiset_zip]'), { after: 0.3 });
+    await R.click(await R.el('input[name=exFmt][value=qupath_geojson]'), { after: 0.5 });
     await R.click(await R.el("#exGo"), { after: 0.1 });
     for (let i = 0; i < 600 && !(await R.ev("!!document.getElementById('exDone')")); i++) await R.hold(0.1);
     await R.hold(1.8);

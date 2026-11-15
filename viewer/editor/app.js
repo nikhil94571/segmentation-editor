@@ -499,8 +499,8 @@
     scope = scope || (S.sid ? "image" : "library");
     $("openModal").classList.remove("show");
     let st; try { st = await api("/api/editor/settings"); } catch (e) { toast(e.message); return; }
-    let dest = st.export_dir, fmts = FORMATS.map((f) => f[0]);
-    try { const saved = JSON.parse(store.get("seg-editor-formats") || "null"); if (Array.isArray(saved) && saved.length) fmts = saved; } catch (e) {}
+    let dest = st.export_dir;
+    const fmts = ["imagej_tif", "overlay_png"];                 // ticked every time the dialog opens; the rest are opt-in
     $("exportBody").innerHTML = `
       <div class="opts">
         <label class="opt"><input type="radio" name="exScope" value="image" ${scope === "image" ? "checked" : ""} ${S.sid ? "" : "disabled"}>
@@ -524,7 +524,6 @@
     $("exGo").onclick = () => {
       const chosen = [...document.querySelectorAll("input[name=exFmt]:checked")].map((x) => x.value);
       if (!chosen.length) { $("exErr").textContent = "Tick at least one file type."; return; }
-      store.set("seg-editor-formats", JSON.stringify(chosen));
       const typed = $("exDest").value.trim();                   // "~" stands for the home folder
       if (typed) dest = typed === "~" || /^~[\\/]/.test(typed) ? st.home + typed.slice(1) : typed;
       runExport(document.querySelector("input[name=exScope]:checked").value, lib, dest, chosen);
@@ -616,22 +615,22 @@
     let j; try { j = await api("/api/editor/libraries"); } catch (e) { $("libErr").textContent = e.message; return; }
     const cur = S.lib && S.lib.id;
     $("libList").innerHTML = j.libraries.length ? j.libraries.map((l) => `
-      <div class="li ${l.id === cur ? "current" : ""}" data-lib="${esc(l.id)}">
-        <span class="q-name" data-name>${esc(l.name)}</span>
+      <div class="li ${l.id === cur ? "current" : ""} ${l.id === cur && S.libShut ? "shut" : ""}" data-lib="${esc(l.id)}" ${l.id === cur ? 'title="Click to show or hide its images"' : ""}>
+        ${l.id === cur ? '<svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>' : ""}<span class="q-name" data-name>${esc(l.name)}</span>
         <span class="meta">${l.count} image${l.count === 1 ? "" : "s"}${l.done ? ` · ${l.done} done` : ""}${l.edited ? ` · ${l.edited} edited` : ""}</span>
         ${l.id === cur ? '<span class="tag cur">Working on this</span>' : '<button class="btn" data-act="use">Work on this</button>'}
-        <button class="btn" data-act="export">Export</button>
         <button class="btn" data-act="rename">Rename</button>
         ${S.hosted && l.id === "practice" ? "" : '<button class="btn danger" data-act="delete">Delete</button>'}
-      </div>${l.id === cur ? `<div class="cases">${S.lib.cases.map((c, i) => `<button class="${i === S.caseIndex ? "on" : ""} ${i === S.pick ? "sel" : ""}" data-case="${i}"><span class="q-name">${esc(c.name)}</span>${c.done ? '<span class="tag done">done</span>' : c.edited ? '<span class="tag">edited</span>' : ""}</button>`).join("")}</div>` : ""}`).join("")
+      </div>${l.id === cur && !S.libShut ? `<div class="cases">${S.lib.cases.map((c, i) => `<button class="${i === S.caseIndex ? "on" : ""} ${i === S.pick ? "sel" : ""}" data-case="${i}"><span class="q-name">${esc(c.name)}</span>${c.done ? '<span class="tag done">done</span>' : c.edited ? '<span class="tag">edited</span>' : ""}</button>`).join("")}</div>` : ""}`).join("")
       : '<p class="note">No libraries yet. Import a folder of images below.</p>';
     $("libList").querySelectorAll("[data-case]").forEach((b) => (b.onclick = () => pickCase(+b.dataset.case)));
     if (S.pick == null) $("preview").hidden = true;
+    const row = $("libList").querySelector(".li.current");      // clicking the open library's row folds its list of images away
+    if (row) row.onclick = (e) => { if (e.target.closest("button, input")) return; S.libShut = !S.libShut; S.pick = null; renderLibraries(); };
     $("libList").querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
       const row = b.closest("[data-lib]"), id = row.dataset.lib, act = b.dataset.act;
       try {
-        if (act === "export") await showExport("library", id, row.querySelector("[data-name]").textContent);
-        else if (act === "use") { $("libErr").textContent = "Opening…"; await useLibrary(id); $("openModal").classList.remove("show"); }
+        if (act === "use") { $("libErr").textContent = "Opening…"; S.libShut = false; await useLibrary(id); $("openModal").classList.remove("show"); }
         else if (act === "rename") {
           const span = row.querySelector("[data-name]"), inp = document.createElement("input");
           inp.type = "text"; inp.value = span.textContent; inp.style.flex = "1"; span.replaceWith(inp); inp.focus(); inp.select();
