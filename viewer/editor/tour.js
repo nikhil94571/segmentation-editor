@@ -28,7 +28,7 @@
       <div class="tour-card" role="dialog" aria-label="Tour of the editor">
         <div class="tour-top"><span class="tour-n"></span><span class="tour-dots"></span><button class="link tour-skip" type="button">Skip the tour</button></div>
         <h4></h4><p class="tour-text"></p>
-        <div class="tour-btns"><button class="btn tour-replay" type="button">Replay step</button><span class="spacer"></span><button class="btn tour-back" type="button">Back</button><button class="btn primary tour-next" type="button">Next</button></div>
+        <div class="tour-btns"><button class="btn tour-back" type="button">Back</button><span class="spacer"></span><button class="btn primary tour-next" type="button">Next</button></div>
       </div>`;
     document.body.appendChild(root);
     card = root.querySelector(".tour-card"); cur = root.querySelector(".tour-cur"); badge = root.querySelector(".tour-badge");
@@ -36,7 +36,6 @@
     root.querySelector(".tour-skip").onclick = () => end();
     root.querySelector(".tour-next").onclick = () => go(idx + 1);
     root.querySelector(".tour-back").onclick = () => go(idx - 1);
-    root.querySelector(".tour-replay").onclick = () => go(idx);
     const block = root.querySelector(".tour-block");            // the visitor's own mouse does nothing to the editor during the tour
     ["pointerdown", "pointerup", "click", "dblclick", "contextmenu"].forEach((t) => block.addEventListener(t, (e) => { e.preventDefault(); e.stopPropagation(); }));
     block.addEventListener("wheel", (e) => e.preventDefault(), { passive: false });
@@ -175,7 +174,7 @@
         await move(t, at(1640, 600), 1.0); await wait(t, 700); await move(t, at(1420, 1040), 0.9); await wait(t, 500); await move(t, at(330, 1240), 1.1);
       } },
     { title: "Six practice images", at: "#caseNav",
-      text: () => `Six practice images are loaded. These arrows step through them, and <b>Open…</b> on the right lists them all.`,
+      text: () => `Six practice images are loaded. These arrows step through them, and <b>Open</b> on the right lists them all.`,
       async play(t) {
         await Promise.all([spot(t, [union(box("#caseNav"), box("#sessionName"))]), whole(t)]);
         const b = $("nextCase").getBoundingClientRect(); await move(t, { x: b.left + b.width / 2, y: b.top + b.height / 2 + 2 });
@@ -189,10 +188,32 @@
         if (row) { const b = row.getBoundingClientRect(); await move(t, { x: b.left + b.width / 2, y: b.top + b.height / 2 }); await wait(t, 150); down = true; ring(); showCur(); await wait(t, 110); down = false; await glide(t, () => document.querySelectorAll("#queue .q-item")[3].click()); await wait(t, 1100); }
         await whole(t, 700);
       } },
-    { title: "Adjust the outline",
-      text: () => `With a region selected, <b>drag a node</b> to move that part of the outline, or <b>drag the line</b> between two nodes to bend it.`,
+    { title: "Extend or trim a region",
+      text: () => `Click the pencil, or press ${K("P")}. Start <b>on the outline</b> (an orange dot shows where), draw the new edge, and end back <b>on the same outline</b>. That stretch of the outline is replaced by your line.`,
       async play(t) {
-        await Promise.all([spot(t, [stage()]), look(t, 1400, 480, 1830, 770)]);
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1400, 480, 1830, 770)]);
+        await clickEl(t, "#toolDraw", 500);
+        say("Extend: draw the new edge outside the region", 3200);
+        await stroke(t, hand([onLine("region-04", 1570, 640)].concat(ats([[1578, 690], [1612, 728], [1662, 738], [1698, 722]]), [onLine("region-04", 1712, 702)]), false, 0.6), 200, 900);
+        await look(t, -40, 1390, 390, 1680, 1100);
+        say("Trim: draw through the region; the smaller piece is cut off", 3400);
+        await stroke(t, hand([onLine("region-03", 146, 1508)].concat(ats([[136, 1532], [132, 1560], [140, 1582]]), [onLine("region-03", 150, 1596)]), false, 0.5), 170, 500);
+        await move(t, { x: pos.x + 150, y: pos.y - 90 });
+      } },
+    { title: "Draw a region the model missed",
+      text: () => `Still with the pencil: press, draw around the area, and finish where you started. The shape fills in when the loop closes.`,
+      async play(t) {
+        Ed().setTool("draw");
+        await Promise.all([spot(t, [stage()]), look(t, 1180, 860, 1800, 1250)]);
+        await stroke(t, hand(ats(GLAND), true), 250, 500);
+        await move(t, { x: pos.x - 110, y: pos.y + 90 });
+      } },
+    { title: "Adjust the outline",
+      text: () => `Click the arrow, or press ${K("V")}, and select a region. <b>Drag a node</b> to move that part of the outline, or <b>drag the line</b> between two nodes to bend it.`,
+      async play(t) {
+        Ed().setTool("draw");                                  // as the step before left it
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1400, 480, 1830, 770)]);
+        await clickEl(t, "#toolEdit", 500);
         await click(t, at(1640, 600), 700);
         say("Drag a node"); await drag(t, nodeAt("region-04", 1659, 656), at(1668, 716), 1.2, 500);
         await drag(t, nodeAt("region-04", 1605, 651), at(1612, 700), 1.0, 700);
@@ -200,26 +221,6 @@
         const a = onLine("region-04", 1708, 610), s = S().view.s; await drag(t, a, { x: a.x + 19 * s, y: a.y - 9 * s }, 1.1, 500);
         const b = onLine("region-04", 1536, 610); await drag(t, b, { x: b.x - 16 * s, y: b.y + 4 * s }, 1.0, 300);
         await move(t, { x: pos.x - 70, y: pos.y + 80 });
-      } },
-    { title: "Draw a region the model missed",
-      text: () => `Click the pencil, or press ${K("P")}. Press, draw around the area, and finish where you started. The shape fills in when the loop closes.`,
-      async play(t) {
-        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1180, 860, 1800, 1250)]);
-        await clickEl(t, "#toolDraw", 500);
-        await stroke(t, hand(ats(GLAND), true), 250, 500);
-        await move(t, { x: pos.x - 110, y: pos.y + 90 });
-      } },
-    { title: "Extend or trim a region",
-      text: () => `Still with the pencil: start <b>on the outline</b> (an orange dot shows where), draw the new edge, and end back <b>on the same outline</b>. That stretch of the outline is replaced by your line.`,
-      async play(t) {
-        Ed().setTool("draw");
-        await Promise.all([spot(t, [stage()]), look(t, 1400, 480, 1830, 770)]);
-        say("Extend: draw the new edge outside the region", 3200);
-        await stroke(t, hand([onLine("region-04", 1570, 640)].concat(ats([[1578, 690], [1612, 728], [1662, 738], [1698, 722]]), [onLine("region-04", 1712, 702)]), false, 0.6), 200, 900);
-        await look(t, -40, 1390, 390, 1680, 1100);
-        say("Trim: draw through the region; the smaller piece is cut off", 3400);
-        await stroke(t, hand([onLine("region-03", 146, 1508)].concat(ats([[136, 1532], [132, 1560], [140, 1582]]), [onLine("region-03", 150, 1596)]), false, 0.5), 170, 500);
-        await move(t, { x: pos.x + 150, y: pos.y - 90 });
       } },
     { title: "Delete a wrong region, and undo anything",
       text: () => `Select a region and press ${K("Delete")} to remove it. The undo arrow at the top, or ${K(MAC ? "⌘" : "Ctrl")} ${K("Z")}, takes back any change, one step at a time.`,

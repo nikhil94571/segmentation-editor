@@ -36,7 +36,7 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 On Windows: `py -m venv .venv`, then `.venv\Scripts\pip install -r requirements.txt` and
 `.venv\Scripts\python serve.py`.
 
-It opens with six practice images and the tour. To use your own, click **Open…** and drop in a folder or a `.zip`.
+It opens with six practice images and the tour. To use your own, click **Open** and drop in a folder or a `.zip`.
 Files are paired by name: `slide1_image.png` with `slide1_prob.tif` or `slide1_mask.png`.
 
 ## Using the editor
