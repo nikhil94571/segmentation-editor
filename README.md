@@ -11,7 +11,7 @@ in the tools the lab already uses. The corrected masks can also go straight back
 > **Status: prototype.** Built and tested on public H&E images from Wikimedia Commons only. Not yet used by a
 > person on real lab data, and not yet run on a real Windows machine.
 
-<!-- Live demo: add the link here once it is deployed (see "Hosting it"). -->
+**Try it now: https://segmentation-tool.fly.dev/editor** (a demo server: please do not upload confidential or patient images).
 
 ## What it does
 
@@ -92,7 +92,7 @@ those no handles, and they are adjusted by Shift-drawing to add, Alt-drawing to 
 **It is a demo server, not a secure one.** There is no login and anyone with the link can upload images. The
 Open dialog says so and asks people not to upload confidential or patient images.
 
-### Hugging Face Spaces (free)
+### Hugging Face Spaces
 
 ```bash
 pip install huggingface_hub && hf auth login       # a token with write access
@@ -101,21 +101,22 @@ python deploy/space.py <user>/segmentation-editor  # creates the Space and uploa
 ```
 
 The Space builds the `Dockerfile` and serves the editor at `https://<user>-segmentation-editor.hf.space`. Send
-that link, not the `huggingface.co/spaces/…` page. A free Space sleeps after about two days without visitors and
-takes around a minute to wake.
+that link, not the `huggingface.co/spaces/…` page. Docker Spaces need a paid (PRO) Hugging Face account; this
+route was prepared but has not been run.
 
 ### Fly.io, or anything that runs a Dockerfile
 
 ```bash
 fly auth login
-fly launch --copy-config --no-deploy     # change the app name in fly.toml first
-fly deploy                               # https://<app name>.fly.dev
+fly apps create <app name>               # and put the same name in fly.toml
+fly deploy --ha=false                    # one machine; https://<app name>.fly.dev
 ```
 
 The container listens on `$PORT` (8080) and keeps its data in `$DATA_DIR` (`/data`), which is lost on a redeploy
 unless a disk is attached there. Allow about 1 GB of memory.
 
-Neither deployment has been run yet: the container has not been built on a real host.
+The live demo runs this way on Fly.io: one shared-CPU machine with 1 GB of memory in Sydney, suspended when
+nobody is using it. Measured on 15 Nov 2026, it wakes in under a second.
 
 ## How well it works
 
