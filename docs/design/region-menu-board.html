@@ -1,0 +1,311 @@
+<title>Region Menu Board</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* Layout: two rows of three live mock canvases; each card is one way the menu could behave. Tokens are the editor's own. */
+:root {
+  --page: #EEF0FA; --panel: #FFFFFF; --canvas: #E4E4E8;
+  --ink: #12142B; --ink-soft: #3F4466; --ink-mute: #7A7FA3;
+  --line: rgba(60,64,120,.16); --line-soft: rgba(60,64,120,.09);
+  --accent: #4F5BD5; --accent-tint: rgba(79,91,213,.10);
+  --menu: rgba(250,250,255,.96); --menu-shadow: 0 14px 34px -14px rgba(20,22,46,.45);
+  --tissue-a: #E9B7CF; --tissue-b: #D99BBE; --tissue-c: #F3D6E3;
+  --c-tumour: #D9534F; --c-stroma: #2E9E6B; --c-necrosis: #C98A1B; --c-normal: #4F7FD5; --c-exclude: #6B6F85; --c-none: #4F5BD5;
+  --font-ui: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --page: #17181C; --panel: #26282E; --canvas: #1D1E22;
+  --ink: #F2F3F5; --ink-soft: #C3C6CE; --ink-mute: #8B8F9A;
+  --line: rgba(255,255,255,.13); --line-soft: rgba(255,255,255,.07);
+  --accent: #7C9BFF; --accent-tint: rgba(124,155,255,.14);
+  --menu: rgba(44,46,54,.97); --menu-shadow: 0 14px 34px -14px rgba(0,0,0,.85);
+  --tissue-a: #7A4A62; --tissue-b: #8C5673; --tissue-c: #5E3B4E;
+  --c-tumour: #FF8A7A; --c-stroma: #6FCF97; --c-necrosis: #E5B866; --c-normal: #7C9BFF; --c-exclude: #A3A7BA; --c-none: #7C9BFF;
+  color-scheme: dark;
+} }
+:root[data-theme="dark"] {
+  --page: #17181C; --panel: #26282E; --canvas: #1D1E22;
+  --ink: #F2F3F5; --ink-soft: #C3C6CE; --ink-mute: #8B8F9A;
+  --line: rgba(255,255,255,.13); --line-soft: rgba(255,255,255,.07);
+  --accent: #7C9BFF; --accent-tint: rgba(124,155,255,.14);
+  --menu: rgba(44,46,54,.97); --menu-shadow: 0 14px 34px -14px rgba(0,0,0,.85);
+  --tissue-a: #7A4A62; --tissue-b: #8C5673; --tissue-c: #5E3B4E;
+  --c-tumour: #FF8A7A; --c-stroma: #6FCF97; --c-necrosis: #E5B866; --c-normal: #7C9BFF; --c-exclude: #A3A7BA; --c-none: #7C9BFF;
+  color-scheme: dark;
+}
+body { background: var(--page); color: var(--ink); font-family: var(--font-ui); font-size: 14px; line-height: 1.45;
+  padding-block: 28px 56px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1180px; margin: 0 auto; display: flex; flex-direction: column; gap: 34px; }
+header h1 { font-size: 24px; margin: 0 0 6px; letter-spacing: -.01em; }
+header p { margin: 0; color: var(--ink-soft); max-width: 68ch; }
+section { display: flex; flex-direction: column; gap: 14px; }
+section > h2 { font-size: 17px; margin: 0; }
+section > p { margin: 0; color: var(--ink-soft); max-width: 72ch; }
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 16px; }
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 16px; overflow: hidden; display: flex; flex-direction: column; min-width: 0; }
+.card.pick { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-tint); }
+.card h3 { margin: 0; font-size: 14px; padding: 12px 14px 10px; display: flex; align-items: center; gap: 8px; }
+.card h3 .tag { font-size: 11px; font-weight: 600; color: var(--accent); background: var(--accent-tint); padding: 2px 8px; border-radius: 99px; }
+.card .notes { padding: 10px 14px 14px; color: var(--ink-soft); font-size: 12.5px; display: grid; gap: 4px; }
+.card .notes b { color: var(--ink); font-weight: 600; }
+.stage { position: relative; height: 300px; background: var(--canvas); overflow: hidden; user-select: none; touch-action: none; }
+.stage svg.img { position: absolute; inset: 0; width: 100%; height: 100%; }
+.region { cursor: pointer; transition: fill .2s, stroke .2s; }
+.hint { position: absolute; left: 10px; top: 10px; font-size: 11px; color: var(--ink-mute); background: var(--menu); padding: 3px 8px; border-radius: 99px; pointer-events: none; }
+.status { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-soft); padding: 8px 14px; border-top: 1px solid var(--line-soft); border-bottom: 1px solid var(--line-soft); min-height: 18px; }
+kbd { font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-mute); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
+button { font: inherit; color: inherit; }
+button:focus-visible, input:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* shared menu surface */
+.menu { position: absolute; background: var(--menu); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--menu-shadow);
+  opacity: 0; pointer-events: none; transition: opacity .16s ease, transform .2s cubic-bezier(.2,.9,.3,1.2); }
+.menu.open { opacity: 1; pointer-events: auto; }
+
+/* A1 wheel */
+.wheel { position: absolute; left: 50%; top: 50%; width: 236px; height: 236px; margin: -118px 0 0 -118px; opacity: 0; pointer-events: none;
+  transform: scale(.55) rotate(-25deg); transition: opacity .16s ease, transform .28s cubic-bezier(.2,.9,.3,1.25); }
+.wheel.open { opacity: 1; pointer-events: auto; transform: none; }
+.wheel path { fill: var(--menu); stroke: var(--line); cursor: pointer; transition: fill .12s; }
+.wheel g:hover path, .wheel g.on path { fill: var(--accent-tint); }
+.wheel text { font-size: 10.5px; fill: var(--ink); text-anchor: middle; pointer-events: none; font-family: var(--font-ui); }
+.wheel text.k { font-size: 9px; fill: var(--ink-mute); font-family: var(--font-mono); }
+.wheel circle.dot { pointer-events: none; }
+.wheel .hub { fill: var(--canvas); stroke: var(--line); }
+
+/* A2 list */
+.list { left: 58%; top: 50%; width: 178px; padding: 6px; transform: translate(-8px, -50%) scale(.96); transform-origin: left center; }
+.list.open { transform: translate(0, -50%); }
+.row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border: 0; background: none; border-radius: 9px; cursor: pointer; text-align: left; }
+.row:hover, .row.on { background: var(--accent-tint); }
+.row .sw { width: 10px; height: 10px; border-radius: 50%; flex: none; }
+.row span.n { flex: 1; }
+.sep { height: 1px; background: var(--line-soft); margin: 5px 4px; }
+.list input[type=text] { width: 100%; box-sizing: border-box; margin-top: 4px; padding: 6px 8px; border-radius: 9px; border: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; font-size: 12.5px; }
+
+/* A3 chips */
+.chips { left: 50%; top: 14%; padding: 6px; display: flex; gap: 5px; flex-wrap: wrap; justify-content: center; max-width: 92%; transform: translate(-50%, 8px) scale(.96); }
+.chips.open { transform: translate(-50%, 0); }
+.chip { display: flex; align-items: center; gap: 6px; border: 1px solid var(--line); background: none; border-radius: 99px; padding: 4px 9px; cursor: pointer; font-size: 12.5px; }
+.chip:hover, .chip.on { background: var(--accent-tint); border-color: var(--accent); }
+.chip .sw { width: 9px; height: 9px; border-radius: 50%; }
+
+/* B1 reshape popover */
+.pop { left: 56%; top: 50%; width: 204px; padding: 6px; transform: translate(-8px, -50%) scale(.96); transform-origin: left center; }
+.pop.open { transform: translate(0, -50%); }
+.num { display: flex; align-items: center; gap: 6px; padding: 5px 8px; }
+.num label { flex: 1; }
+.num input { width: 54px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--ink); font: inherit; font-family: var(--font-mono); font-size: 12px; text-align: right; }
+.num .u { color: var(--ink-mute); font-size: 12px; }
+.mini { border: 1px solid var(--line); background: none; border-radius: 8px; width: 24px; height: 24px; cursor: pointer; line-height: 1; }
+.mini:hover { background: var(--accent-tint); }
+
+/* B2 bar */
+.bar { left: 50%; bottom: 12px; padding: 6px 8px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; justify-content: center; max-width: 94%; box-sizing: border-box; transform: translate(-50%, 14px); }
+.bar.open { transform: translate(-50%, 0); }
+.bar .b { border: 0; background: none; border-radius: 8px; padding: 5px 8px; cursor: pointer; font-size: 12.5px; }
+.bar .b:hover { background: var(--accent-tint); }
+.bar .v { width: 1px; height: 18px; background: var(--line); }
+
+/* B3 drag ring */
+.ring { fill: none; stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: 0; transition: opacity .15s; pointer-events: none; }
+.grip { fill: var(--panel); stroke: var(--accent); stroke-width: 2; cursor: ew-resize; opacity: 0; transition: opacity .15s; }
+.sel .ring, .sel .grip { opacity: 1; }
+.readout { position: absolute; font-family: var(--font-mono); font-size: 11.5px; background: var(--accent); color: #fff; padding: 2px 7px; border-radius: 7px; pointer-events: none; opacity: 0; transition: opacity .12s; transform: translate(-50%, -150%); }
+.readout.show { opacity: 1; }
+@media (prefers-reduced-motion: reduce) { .menu, .wheel { transition: opacity .1s; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <h1>Region menu idea board</h1>
+    <p>Six live mock-ups for the two new tools. Click the outlined region in any card to open its menu, then try it. The tissue is a drawing, and nothing here is wired to the real editor yet.</p>
+  </header>
+
+  <section>
+    <h2>Label: what should appear when you click a region?</h2>
+    <p>Five example classes plus an "unsure" flag and a note. In every version the number keys 1 to 5 also set the class, so the menu is mainly for learning and for the mouse.</p>
+    <div class="grid" id="labelGrid"></div>
+  </section>
+
+  <section>
+    <h2>Reshape: where do the actions and the distance go?</h2>
+    <p>Merge and subtract need a second region, so here they only report what would happen. Grow, shrink, fill holes and band work on the mock region. Distances assume 0.5 µm per pixel.</p>
+    <div class="grid" id="shapeGrid"></div>
+  </section>
+</div>
+
+<script>
+const CLASSES = [
+  { n: "Tumour", c: "--c-tumour" }, { n: "Stroma", c: "--c-stroma" }, { n: "Necrosis", c: "--c-necrosis" },
+  { n: "Normal", c: "--c-normal" }, { n: "Exclude", c: "--c-exclude" },
+];
+const OUTER = "M200 78 C252 68 304 108 292 162 C286 206 240 232 194 223 C148 216 110 190 117 144 C122 104 160 85 200 78Z";
+const HOLE = "M184 142 a17 13 0 1 0 34 0 a17 13 0 1 0 -34 0Z";
+const NS = "http://www.w3.org/2000/svg";
+const el = (tag, attrs = {}, html) => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (html != null) e.innerHTML = html; return e; };
+const sv = (tag, attrs = {}) => { const e = document.createElementNS(NS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); return e; };
+let active = null;                                   // the label stage whose menu was opened last (for number keys)
+
+function card(grid, title, pick, notes) {
+  const c = el("div", { class: "card" + (pick ? " pick" : "") });
+  c.append(el("h3", {}, title + (pick ? ' <span class="tag">My pick</span>' : "")));
+  const stage = el("div", { class: "stage" });
+  const svg = sv("svg", { class: "img", viewBox: "0 0 400 300", preserveAspectRatio: "xMidYMid slice" });
+  // a drawn stand-in for H&E tissue: soft blobs, seeded so every card looks the same
+  let s = 7; const rnd = () => (s = (s * 16807) % 2147483647) / 2147483647;
+  for (let i = 0; i < 70; i++) svg.append(sv("circle", { cx: rnd() * 400, cy: rnd() * 300, r: 8 + rnd() * 26, fill: `var(--tissue-${"abc"[i % 3]})`, opacity: .55 }));
+  const g = sv("g");
+  const region = sv("path", { class: "region", "fill-rule": "evenodd", "stroke-width": 2.2 });
+  g.append(region); svg.append(g); stage.append(svg);
+  stage.append(el("div", { class: "hint" }, "Click the region"));
+  const status = el("div", { class: "status" });
+  c.append(stage, status, el("div", { class: "notes" }, notes));
+  grid.append(c);
+  const st = { stage, svg, g, region, status, cls: null, unsure: false, note: "", um: 0, filled: false, band: 0, open: false };
+  st.paint = () => {
+    const col = st.cls == null ? "var(--c-none)" : `var(${CLASSES[st.cls].c})`;
+    const k = 1 + st.um / 0.5 / 88;                  // 88 px is the mock region's rough radius
+    g.setAttribute("transform", `translate(200 150) scale(${Math.max(.3, k).toFixed(3)}) translate(-200 -150)`);
+    region.setAttribute("d", OUTER + (st.filled ? "" : HOLE));
+    region.setAttribute("stroke", col);
+    region.setAttribute("fill", col); region.setAttribute("fill-opacity", st.cls === 4 ? .12 : .3);
+    region.setAttribute("stroke-dasharray", st.cls === 4 ? "7 5" : "none");
+    const bits = ["region-03", st.cls == null ? "no class" : CLASSES[st.cls].n];
+    if (st.unsure) bits.push("unsure"); if (st.note) bits.push("note: " + st.note);
+    if (st.um) bits.push((st.um > 0 ? "+" : "") + st.um + " µm"); if (st.filled) bits.push("holes filled"); if (st.band) bits.push("band " + st.band + " µm");
+    if (st.msg) bits.push(st.msg);
+    status.textContent = bits.join(" · ");
+  };
+  st.paint();
+  return st;
+}
+function wire(st, menu, onOpen) {                    // click region to open, click the bare canvas to close
+  st.toggle = (v) => { st.open = v; menu.classList.toggle("open", v); st.stage.classList.toggle("sel", v); if (v) { active = st; onOpen && onOpen(); } };
+  st.region.addEventListener("click", (e) => { e.stopPropagation(); st.toggle(!st.open); });
+  st.stage.addEventListener("click", (e) => { if (!menu.contains(e.target)) st.toggle(false); });
+}
+
+/* ---------- Label ---------- */
+const LG = document.getElementById("labelGrid");
+{ // A1 wheel
+  const st = card(LG, "A · Wheel", false,
+    "<div><b>For:</b> fast once learned; every class is the same short move from the click.</div><div><b>Against:</b> names get cramped past six classes, it covers the region you are judging, and there is no natural place for the note.</div>");
+  const w = sv("svg", { class: "wheel", viewBox: "-118 -118 236 236" });
+  const R = 112, r = 44, n = CLASSES.length, pt = (a, rad) => [Math.cos(a) * rad, Math.sin(a) * rad];
+  CLASSES.forEach((c, i) => {
+    const a0 = -Math.PI / 2 + i * 2 * Math.PI / n, a1 = a0 + 2 * Math.PI / n, am = (a0 + a1) / 2;
+    const [x0, y0] = pt(a0, R), [x1, y1] = pt(a1, R), [x2, y2] = pt(a1, r), [x3, y3] = pt(a0, r), [tx, ty] = pt(am, (R + r) / 2);
+    const g = sv("g"); g.dataset.i = i;
+    g.append(sv("path", { d: `M${x0} ${y0} A${R} ${R} 0 0 1 ${x1} ${y1} L${x2} ${y2} A${r} ${r} 0 0 0 ${x3} ${y3}Z` }));
+    g.append(sv("circle", { class: "dot", cx: tx, cy: ty - 13, r: 5, fill: `var(${c.c})` }));
+    const t = sv("text", { x: tx, y: ty + 4 }); t.textContent = c.n; g.append(t);
+    const k = sv("text", { class: "k", x: tx, y: ty + 16 }); k.textContent = i + 1; g.append(k);
+    g.addEventListener("click", (e) => { e.stopPropagation(); st.cls = i; st.paint(); sync(); st.toggle(false); });
+    w.append(g);
+  });
+  const hub = sv("circle", { class: "hub", r: r - 5 }); w.append(hub);
+  const ht = sv("text", { y: 4 }); ht.textContent = "unsure?"; w.append(ht);
+  hub.style.cursor = "pointer"; hub.style.pointerEvents = "auto";
+  hub.addEventListener("click", (e) => { e.stopPropagation(); st.unsure = !st.unsure; ht.textContent = st.unsure ? "unsure ✓" : "unsure?"; st.paint(); });
+  const sync = () => w.querySelectorAll("g").forEach((g) => g.classList.toggle("on", +g.dataset.i === st.cls));
+  st.sync = sync; st.stage.append(w); wire(st, w);
+}
+{ // A2 list
+  const st = card(LG, "B · List beside the region", true,
+    "<div><b>For:</b> full names are readable, the number keys are shown, and the unsure flag and note sit in the same place. It opens beside the region, so the tissue stays visible.</div><div><b>Against:</b> a slightly longer mouse move to the bottom rows.</div>");
+  const m = el("div", { class: "menu list" });
+  CLASSES.forEach((c, i) => {
+    const b = el("button", { class: "row", type: "button" }, `<span class="sw" style="background:var(${c.c})"></span><span class="n">${c.n}</span><kbd>${i + 1}</kbd>`);
+    b.dataset.i = i; b.addEventListener("click", () => { st.cls = i; st.paint(); sync(); st.toggle(false); }); m.append(b);
+  });
+  m.append(el("div", { class: "sep" }));
+  const u = el("button", { class: "row", type: "button" }, `<span class="sw" style="border:1.5px dashed var(--ink-mute)"></span><span class="n">Unsure</span><kbd>U</kbd>`);
+  u.addEventListener("click", () => { st.unsure = !st.unsure; u.classList.toggle("on", st.unsure); st.paint(); }); m.append(u);
+  const note = el("input", { type: "text", id: "noteB", placeholder: "Add a note", "aria-label": "Note" });
+  note.addEventListener("input", () => { st.note = note.value.slice(0, 40); st.paint(); }); m.append(note);
+  const sync = () => m.querySelectorAll(".row[data-i]").forEach((b) => b.classList.toggle("on", +b.dataset.i === st.cls));
+  st.sync = sync; st.stage.append(m); wire(st, m);
+}
+{ // A3 chips
+  const st = card(LG, "C · Chips above the region", false,
+    "<div><b>For:</b> smallest footprint; one glance, one click.</div><div><b>Against:</b> wraps onto two lines with more classes, and the note and unsure flag would need a second step.</div>");
+  const m = el("div", { class: "menu chips" });
+  CLASSES.forEach((c, i) => {
+    const b = el("button", { class: "chip", type: "button" }, `<span class="sw" style="background:var(${c.c})"></span>${c.n} <kbd>${i + 1}</kbd>`);
+    b.dataset.i = i; b.addEventListener("click", () => { st.cls = i; st.paint(); sync(); st.toggle(false); }); m.append(b);
+  });
+  const sync = () => m.querySelectorAll(".chip").forEach((b) => b.classList.toggle("on", +b.dataset.i === st.cls));
+  st.sync = sync; st.stage.append(m); wire(st, m);
+}
+document.addEventListener("keydown", (e) => {
+  if (e.target.tagName === "INPUT") return;
+  if (e.key === "Escape" && active) active.toggle(false);
+  const i = +e.key - 1;
+  if (active && active.sync && i >= 0 && i < CLASSES.length) { active.cls = i; active.paint(); active.sync(); }
+});
+
+/* ---------- Reshape ---------- */
+const SG = document.getElementById("shapeGrid");
+const say = (st, m) => { st.msg = m; st.paint(); clearTimeout(st.t); st.t = setTimeout(() => { st.msg = ""; st.paint(); }, 1800); };
+function numRow(st, id, label, get, set, step) {
+  const r = el("div", { class: "num" });
+  r.innerHTML = `<label for="${id}">${label}</label><button class="mini" type="button" aria-label="Less">−</button><input id="${id}" inputmode="numeric" value="${get()}"><span class="u">µm</span><button class="mini" type="button" aria-label="More">+</button>`;
+  const inp = r.querySelector("input"), [less, more] = r.querySelectorAll(".mini");
+  const put = (v) => { v = Math.max(-40, Math.min(60, Math.round(v))); set(v); inp.value = v; st.paint(); };
+  inp.addEventListener("input", () => { const v = parseFloat(inp.value); if (!isNaN(v)) { set(Math.max(-40, Math.min(60, v))); st.paint(); } });
+  less.addEventListener("click", () => put(get() - step)); more.addEventListener("click", () => put(get() + step));
+  r.refresh = () => { inp.value = get(); };
+  return r;
+}
+{ // B1 popover
+  const st = card(SG, "A · Menu on the region", false,
+    "<div><b>For:</b> same pattern as Label, so there is one thing to learn.</div><div><b>Against:</b> typing a distance in a menu that floats over the image is fiddly, and the menu hides part of the result while you adjust it.</div>");
+  const m = el("div", { class: "menu pop" });
+  [["Merge with…", "click another region to merge"], ["Subtract…", "click the region to cut away"], ["Smooth outline", "outline smoothed"]].forEach(([t, msg]) => {
+    const b = el("button", { class: "row", type: "button" }, `<span class="n">${t}</span>`); b.addEventListener("click", () => say(st, msg)); m.append(b);
+  });
+  const f = el("button", { class: "row", type: "button" }, `<span class="n">Fill holes</span>`); f.addEventListener("click", () => { st.filled = !st.filled; st.paint(); }); m.append(f);
+  m.append(el("div", { class: "sep" }));
+  m.append(numRow(st, "growA", "Grow / shrink", () => st.um, (v) => st.um = v, 5));
+  m.append(numRow(st, "bandA", "Band", () => st.band, (v) => st.band = Math.max(0, v), 10));
+  st.stage.append(m); wire(st, m);
+}
+{ // B2 bar
+  const st = card(SG, "B · Bar under the canvas", true,
+    "<div><b>For:</b> never covers the region, so you watch the outline change as you type or step the distance. One-click actions sit left, distances right.</div><div><b>Against:</b> a different pattern from Label; the eye travels to the bottom edge.</div>");
+  const m = el("div", { class: "menu bar" });
+  [["Merge", "click another region to merge"], ["Subtract", "click the region to cut away"], ["Smooth", "outline smoothed"]].forEach(([t, msg]) => {
+    const b = el("button", { class: "b", type: "button" }, t); b.addEventListener("click", () => say(st, msg)); m.append(b);
+  });
+  const f = el("button", { class: "b", type: "button" }, "Fill holes"); f.addEventListener("click", () => { st.filled = !st.filled; st.paint(); }); m.append(f);
+  m.append(el("div", { class: "v" }));
+  m.append(numRow(st, "growB", "Grow", () => st.um, (v) => st.um = v, 5));
+  st.stage.append(m); wire(st, m);
+}
+{ // B3 drag
+  const st = card(SG, "C · Drag the edge", false,
+    "<div><b>For:</b> no typing at all: pull the handle and read the distance as it changes. Feels the most direct.</div><div><b>Against:</b> hard to land on an exact figure such as 500 µm, so it still needs a number box somewhere. Best as an addition to B.</div>");
+  const ring = sv("path", { class: "ring", d: OUTER }), grip = sv("circle", { class: "grip", cx: 292, cy: 150, r: 7 });
+  st.g.append(ring, grip);
+  const ro = el("div", { class: "readout" }); st.stage.append(ro);
+  const m = el("div", { class: "menu bar" });
+  [["Merge", "click another region to merge"], ["Smooth", "outline smoothed"]].forEach(([t, msg]) => { const b = el("button", { class: "b", type: "button" }, t); b.addEventListener("click", () => say(st, msg)); m.append(b); });
+  const f = el("button", { class: "b", type: "button" }, "Fill holes"); f.addEventListener("click", () => { st.filled = !st.filled; st.paint(); }); m.append(f);
+  st.stage.append(m); wire(st, m);
+  let drag = false;
+  const toSvg = (e) => { const p = st.svg.createSVGPoint(); p.x = e.clientX; p.y = e.clientY; return p.matrixTransform(st.svg.getScreenCTM().inverse()); };
+  grip.addEventListener("pointerdown", (e) => { e.stopPropagation(); drag = true; grip.setPointerCapture(e.pointerId); });
+  grip.addEventListener("click", (e) => e.stopPropagation());
+  grip.addEventListener("pointermove", (e) => {
+    if (!drag) return;
+    const p = toSvg(e), d = Math.hypot(p.x - 200, p.y - 150);
+    st.um = Math.max(-40, Math.min(60, Math.round((d - 92) * 0.5)));
+    st.paint();
+    const b = st.stage.getBoundingClientRect(); ro.style.left = (e.clientX - b.left) + "px"; ro.style.top = (e.clientY - b.top) + "px";
+    ro.textContent = (st.um > 0 ? "+" : "") + st.um + " µm"; ro.classList.add("show");
+  });
+  const stop = () => { drag = false; ro.classList.remove("show"); };
+  grip.addEventListener("pointerup", stop); grip.addEventListener("pointercancel", stop);
+}
+</script>
