@@ -97,6 +97,28 @@
     out.move_region = { selected: S.selected === drawn.id, dx: Math.round(bb2.x0 - bbm.x0), dy: Math.round(bb2.y0 - bbm.y0), size_kept: Math.abs((bb2.x1 - bb2.x0) - (bbm.x1 - bbm.x0)) < 0.01 };
     // 12. delete a region
     const nD = S.regions.length; S.selected = S.regions[0].id; E.refresh(); key("Delete"); out.delete_removed = nD - S.regions.length;
+    // 12b. slice: a line drawn right across a region splits it in two
+    E.setTool("draw");
+    const tgt = E.region(drawn.id), bbS = G.bbox(tgt.paths), cyS = (bbS.y0 + bbS.y1) / 2, nS = S.regions.length, aT = area(tgt), line = [];
+    for (let x = bbS.x0 - 45; x <= bbS.x1 + 45; x += 9) line.push({ x, y: cyS });
+    stroke(line);
+    const parts = S.regions.filter((x) => x.name === tgt.name + "a" || x.name === tgt.name + "b");
+    out.slice = { regions_added: S.regions.length - nS, pieces: parts.length, areas: parts.map((x) => Math.round(area(x))), whole: Math.round(aT), draft_left: !!S.draft };
+    E.undo(); out.slice.undo_restores = S.regions.length === nS && !!E.region(drawn.id);
+    stroke(line);
+    // 12c. label: a number key gives the selected region a class, U marks it unsure, the menu opens on a click
+    const piece = S.regions.find((x) => x.name === tgt.name + "a");
+    S.selected = piece.id; E.refresh(); key("2"); key("u");
+    out.label_keys = { cls: piece.cls, expected: S.classes[1].id, unsure: piece.unsure === true, dot_in_list: !!document.querySelector(".q-item.on .q-dot") };
+    E.setTool("label");
+    const bbP = G.bbox(piece.paths), mid = { x: (bbP.x0 + bbP.x1) / 2, y: (bbP.y0 + bbP.y1) / 2 };
+    ev("pointerdown", mid); ev("pointerup", mid); await wait(350);
+    const pop = document.getElementById("labelPop");
+    out.label_menu = { open: pop.classList.contains("open"), rows: pop.querySelectorAll("[data-cls]").length, inside_stage: pop.getBoundingClientRect().right <= document.getElementById("stage").getBoundingClientRect().right };
+    pop.querySelector("[data-cls]").click();
+    out.label_menu.click_sets = E.region(piece.id).cls === S.classes[0].id; out.label_menu.closes = !pop.classList.contains("open");
+    key("x"); out.peek_on = S.peek === true; document.body.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true })); out.peek_off = S.peek === false;
+    E.setTool("edit");
     // 13. export
     const st = await (await fetch("/api/editor/settings")).json(), testDest = st.root + "/scratch/export-test";
     document.getElementById("export").click(); await wait(700);

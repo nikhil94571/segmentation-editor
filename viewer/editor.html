@@ -97,6 +97,30 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block
   font-size: var(--fs-small); padding: 7px 12px; border-radius: 8px; box-shadow: var(--shadow-md); opacity: 0; transition: opacity .2s; pointer-events: none; white-space: nowrap; }
 .toast.show { opacity: .94; }
 
+/* label menu and classes */
+.pop { position: absolute; z-index: 6; width: 196px; padding: 6px; background: var(--modal-bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-md);
+  opacity: 0; pointer-events: none; transform: translateX(-8px) scale(.96); transform-origin: left center; transition: opacity .14s ease, transform .2s cubic-bezier(.2,.9,.3,1.2); }
+.pop.open { opacity: 1; pointer-events: auto; transform: none; }
+.pop-h { font-family: var(--font-mono); font-size: var(--fs-label); color: var(--ink-mute); padding: 4px 8px 6px; }
+.pop-row { display: flex; align-items: center; gap: 8px; width: 100%; padding: 6px 8px; border-radius: 9px; text-align: left; font-size: var(--fs-small); color: var(--ink); }
+.pop-row:hover { background: var(--bg); }
+.pop-row.on { background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.pop-row .pn { flex: 1; }
+.pop kbd, .cls-row kbd { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--ink-mute); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
+.sw { width: 10px; height: 10px; border-radius: 50%; flex: none; display: inline-block; }
+.sw.none { border: 1.5px solid var(--ink-faint); }
+.sw.q { border: 1.5px dashed var(--ink-mute); }
+.pop-sep { height: 1px; background: var(--line-soft); margin: 5px 4px; }
+.pop input[type=text], .cls-row input[type=text] { padding: 6px 8px; border-radius: 9px; border: 1px solid var(--line); background: transparent; color: var(--ink); font-size: var(--fs-small); }
+.pop input[type=text] { width: 100%; margin: 4px 0 2px; }
+.pop-edit { display: block; padding: 6px 8px 4px; }
+.q-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+.d-class { display: flex; align-items: center; gap: 8px; font-size: var(--fs-small); color: var(--ink-soft); margin-bottom: 10px; min-width: 0; }
+.d-note { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink-mute); font-style: italic; }
+.cls-row { display: flex; align-items: center; gap: 9px; padding: 5px 0; }
+.cls-row input[type=text] { flex: 1; min-width: 0; }
+@media (prefers-reduced-motion: reduce) { .pop { transition: opacity .1s; transform: none; } }
+
 /* side panel */
 .side { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .sec { padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
@@ -379,6 +403,7 @@ a.btn { text-decoration: none; }
   <nav class="rail">
     <button class="tool on" id="toolEdit" title="Edit: move nodes, bend lines (V)"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg><kbd>V</kbd></button>
     <button class="tool" id="toolDraw" title="Draw: new regions, reroute outlines (P)"><svg viewBox="0 0 24 24"><path d="M4 20l1-5L16 4l4 4L9 19z"/><path d="M14 6l4 4"/></svg><kbd>P</kbd></button>
+    <button class="tool" id="toolLabel" title="Label: say what a region is (L)"><svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.2"/></svg><kbd>L</kbd></button>
   </nav>
 
   <main class="stage" id="stage">
@@ -389,6 +414,7 @@ a.btn { text-decoration: none; }
       <button class="btn primary" id="openEmpty">Open</button>
       <p style="margin:14px auto 0">New here? <button class="link" id="tutEmpty" type="button">Watch the tutorial</button></p>
     </div></div>
+    <div class="pop" id="labelPop"></div>
     <div class="toast" id="toast"></div>
   </main>
 
@@ -470,7 +496,9 @@ a.btn { text-decoration: none; }
 <div class="backdrop" id="keysModal"><div class="modal" style="width:480px">
   <div class="modal-h"><h3>Shortcuts</h3><button class="icon-btn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
   <div class="modal-b"><div class="keys">
-    <span><kbd>V</kbd> <kbd>P</kbd></span><span>Edit tool, Draw tool</span>
+    <span><kbd>V</kbd> <kbd>P</kbd> <kbd>L</kbd></span><span>Edit tool, Draw tool, Label tool</span>
+    <span><kbd>1</kbd>–<kbd>9</kbd> <kbd>U</kbd></span><span>Give the selected region a class, mark it unsure</span>
+    <span>Hold <kbd>X</kbd></span><span>Hide the regions to see the bare tissue</span>
     <span><kbd>[</kbd> <kbd>]</kbd></span><span>Previous, next image in the library</span>
     <span><kbd>D</kbd></span><span>Mark the image done, or not done</span>
     <span><kbd>N</kbd> <kbd>⇧N</kbd></span><span>Next, previous region (least confident first)</span>
@@ -483,6 +511,16 @@ a.btn { text-decoration: none; }
     <span>Drag</span><span>A node moves it. The line bends. Inside a region moves the whole region</span>
     <span>Double-click</span><span>On a line: add a node. On a node: remove it</span>
   </div></div>
+</div></div>
+
+<div class="backdrop" id="classModal"><div class="modal" style="width:500px">
+  <div class="modal-h"><h3>Classes</h3><button class="icon-btn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
+  <div class="modal-b">
+    <p class="note" style="margin:0 0 10px">The classes for this library. Keys 1 to 9 follow this order. Removing a class clears it from the regions on the open image.</p>
+    <div id="classRows"></div>
+    <div class="err" id="classErr"></div>
+    <div class="actions"><button class="btn" id="classAdd" type="button">Add a class</button><span class="spacer"></span><button class="btn primary" id="classSave" type="button">Save</button></div>
+  </div>
 </div></div>
 
 <div class="backdrop" id="tutModal"><div class="modal tut">

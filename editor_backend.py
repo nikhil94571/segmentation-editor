@@ -707,9 +707,24 @@ def list_libraries():
 
 def get_library(lid):
     lib = _read_lib(lid)
-    return {"id": lib["id"], "name": lib["name"],
+    return {"id": lib["id"], "name": lib["name"], "classes": lib.get("classes"),
             "cases": [{"name": c["name"], "route": c["route"], "edited": _edited(c), "done": bool(c.get("done"))}
                       for c in lib["cases"]]}
+
+
+def set_classes(lid, classes):
+    """The library's class list (what a region can be labelled as). At most nine, one per number key."""
+    lib, out = _read_lib(lid), []
+    for c in (classes or [])[:9]:
+        name = str(c.get("name", "")).strip()[:24]
+        if not name:
+            continue
+        cid = re.sub(r"[^a-z0-9_-]", "", str(c.get("id", "")).lower())[:24] or f"c{len(out) + 1}"
+        col = [max(0, min(255, int(v))) for v in list(c.get("color") or [79, 91, 213])[:3]]
+        out.append({"id": cid, "name": name, "color": col, "exclude": bool(c.get("exclude"))})
+    lib["classes"] = out
+    _write_lib(lib)
+    return {"classes": out}
 
 
 def rename_library(lid, name):

@@ -318,5 +318,50 @@
     return draft;
   };
 
+  /* ---------- slice ---------- */
+  const segX = (a, b, c, d) => {                              // where segment ab meets segment cd, if it does
+    const r = sub(b, a), s = sub(d, c), den = r.x * s.y - r.y * s.x;
+    if (Math.abs(den) < 1e-12) return null;
+    const qp = sub(c, a), t = (qp.x * s.y - qp.y * s.x) / den, u = (qp.x * r.y - qp.y * r.x) / den;
+    return t >= 0 && t <= 1 && u >= 0 && u < 1 ? { t, u, p: add(a, mul(r, t)) } : null;
+  };
+  /* Every place a stroke crosses a closed ring of points, in the order the stroke meets them. */
+  G.crossings = (ring, stroke) => {
+    const out = [];
+    for (let i = 0; i + 1 < stroke.length; i++) {
+      const hits = [];
+      for (let j = 0; j < ring.length; j++) {
+        const h = segX(stroke[i], stroke[i + 1], ring[j], ring[(j + 1) % ring.length]);
+        if (h) hits.push({ si: i, st: h.t, ri: j, ru: h.u, p: P(h.p.x, h.p.y) });
+      }
+      hits.sort((a, b) => a.st - b.st); out.push(...hits);
+    }
+    return out;
+  };
+  G.inPoly = (p, ring) => {
+    let inside = false;
+    for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
+      const a = ring[i], b = ring[j];
+      if ((a.y > p.y) !== (b.y > p.y) && p.x < (b.x - a.x) * (p.y - a.y) / (b.y - a.y) + a.x) inside = !inside;
+    }
+    return inside;
+  };
+  /* Slice: cut a closed path in two along a stroke that crosses its outline exactly twice.
+     Returns { rings: [pointsA, pointsB] } (each ring closed along the cut), or "miss", "many" or "small". */
+  G.slice = (path, stroke) => {
+    const ring = G.flatten(path, 2).map((q) => P(q.x, q.y)), x = G.crossings(ring, stroke), n = ring.length;
+    if (x.length !== 2) return x.length < 2 ? "miss" : "many";
+    const [a, b] = x, cut = stroke.slice(a.si + 1, b.si + 1).map((q) => P(q.x, q.y));
+    const walk = (from, to) => {                              // ring points after `from`, up to and including the one before `to`
+      const o = [];
+      if (from.ri === to.ri && from.ru < to.ru) return o;
+      for (let i = (from.ri + 1) % n; ; i = (i + 1) % n) { o.push(ring[i]); if (i === to.ri) break; }
+      return o;
+    };
+    const rings = [[a.p].concat(walk(a, b), [b.p], cut.slice().reverse()), [b.p].concat(walk(b, a), [a.p], cut)];
+    if (rings.some((r) => Math.abs(G.polyArea(r)) < 30)) return "small";
+    return { rings };
+  };
+
   if (typeof module !== "undefined" && module.exports) module.exports = G; else root.G = G;
 })(typeof window !== "undefined" ? window : globalThis);

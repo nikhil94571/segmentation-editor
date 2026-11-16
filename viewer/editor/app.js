@@ -17,7 +17,16 @@
     view: { s: 1, x: 0, y: 0 }, undo: [], redo: [], counter: 0,
     opacity: 0.4, showModel: false, showHeat: false, space: false, hover: null,
     lib: null, caseIndex: -1, hole: null, pick: null,
+    classes: [], labelFor: null, peek: false,
   };
+  /* Classes: what a region is. Kept per library; a region stores the class id in r.cls. */
+  const PALETTE = [[214, 69, 65], [38, 150, 100], [205, 140, 20], [20, 150, 170], [95, 100, 120], [140, 80, 200], [220, 90, 160], [150, 100, 60], [90, 120, 40]];
+  const DEFAULT_CLASSES = [
+    { id: "tumour", name: "Tumour", color: PALETTE[0] }, { id: "stroma", name: "Stroma", color: PALETTE[1] },
+    { id: "necrosis", name: "Necrosis", color: PALETTE[2] }, { id: "normal", name: "Normal", color: PALETTE[3] },
+    { id: "exclude", name: "Exclude", color: PALETTE[4], exclude: true },
+  ];
+  const classOf = (r) => (r.cls && S.classes.find((c) => c.id === r.cls)) || null;
 
   /* ---------------- server ---------------- */
   async function api(path, body) {
@@ -72,7 +81,7 @@
   const strip = (r) => { const o = Object.assign({}, r); delete o._p; return o; };
   const snapshot = () => JSON.stringify({ regions: S.regions.map(strip), draft: S.draft, selected: S.selected, counter: S.counter });
   function pushUndo() { S.undo.push(snapshot()); if (S.undo.length > 120) S.undo.shift(); S.redo = []; }
-  function restore(json) { S.hole = null; const o = JSON.parse(json); S.regions = o.regions; S.draft = o.draft; S.selected = o.selected; S.counter = o.counter; S.stroke = null; S.drag = null; }
+  function restore(json) { closeLabel(); S.hole = null; const o = JSON.parse(json); S.regions = o.regions; S.draft = o.draft; S.selected = o.selected; S.counter = o.counter; S.stroke = null; S.drag = null; }
   function undo() { if (!S.undo.length) return; S.redo.push(snapshot()); restore(S.undo.pop()); refresh(true); }
   function redo() { if (!S.redo.length) return; S.undo.push(snapshot()); restore(S.redo.pop()); refresh(true); }
   let saveTimer = null, savePending = false;
@@ -111,6 +120,7 @@
   }
   function zoomAt(f, cx, cy) {
     const b = stage.getBoundingClientRect(); if (cx === undefined) { cx = b.width / 2; cy = b.height / 2; }
+    closeLabel();
     const s = Math.min(40, Math.max(0.05, S.view.s * f)), k = s / S.view.s;
     S.view = { s, x: cx - (cx - S.view.x) * k, y: cy - (cy - S.view.y) * k }; S.fitted = false; draw();
   }
@@ -141,12 +151,21 @@
     if (S.showHeat && S.heat) ctx.drawImage(S.heat, 0, 0);
     const px = 1 / v.s;
 
-    for (const r of S.regions) {
-      const p = regionPath(r), sel = r.id === S.selected;
-      ctx.fillStyle = `rgba(${BLUE},${S.showHeat ? S.opacity * 0.35 : S.opacity})`; ctx.fill(p, "evenodd");
+    for (const r of S.peek ? [] : S.regions) {              // holding X hides the regions to show the bare tissue
+      const p = regionPath(r), sel = r.id === S.selected, c = classOf(r), col = c ? c.color : BLUE;
+      const a = (S.showHeat ? S.opacity * 0.35 : S.opacity) * (c && c.exclude ? 0.45 : 1);
+      ctx.fillStyle = `rgba(${col},${a})`; ctx.fill(p, "evenodd");
       ctx.lineJoin = "round";
       ctx.setLineDash([]); ctx.lineWidth = (sel ? 4.5 : 3.2) * px; ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.stroke(p);
-      ctx.lineWidth = (sel ? 2.4 : 1.6) * px; ctx.strokeStyle = "#12307F"; ctx.stroke(p);
+      if (c && c.exclude) ctx.setLineDash([7 * px, 5 * px]);   // left out of measurements: dashed
+      ctx.lineWidth = (sel ? 2.4 : 1.6) * px; ctx.strokeStyle = c ? `rgb(${col.map((v) => Math.round(v * 0.5))})` : "#12307F"; ctx.stroke(p);
+      ctx.setLineDash([]);
+      const n = r.unsure && r.paths[0] && r.paths[0].nodes[0];
+      if (n) {                                                 // "unsure" shows as a ? on the outline
+        ctx.beginPath(); ctx.arc(n.x, n.y, 8 * px, 0, 7); ctx.fillStyle = "#fff"; ctx.fill();
+        ctx.lineWidth = 1.4 * px; ctx.strokeStyle = "#12142B"; ctx.stroke();
+        ctx.fillStyle = "#12142B"; ctx.font = `600 ${11 * px}px sans-serif`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("?", n.x, n.y + 0.5 * px);
+      }
     }
     if (S.showModel && S.meta) {
       ctx.setLineDash([5 * px, 4 * px]); ctx.lineWidth = 1.4 * px;
@@ -162,7 +181,7 @@
       const hp = new Path2D(); tracePath(hp, sel.paths[selHole()]);
       ctx.lineWidth = 3 * px; ctx.strokeStyle = "#C2410C"; ctx.stroke(hp);
     }
-    if (sel && S.tool === "edit") for (const path of sel.paths) drawHandles(path, px);
+    if (sel && S.tool === "edit" && !S.peek) for (const path of sel.paths) drawHandles(path, px);
     if (S.draft) drawDraft(px);
     if (S.stroke && S.stroke.pts.length > 1) {
       ctx.beginPath(); S.stroke.pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
@@ -243,9 +262,9 @@
     if (!S.img) return;
     try { cv.setPointerCapture(e.pointerId); } catch (err) {}
     const p = toImg(e);
-    if (e.button === 1 || S.space) { panning = { x: e.clientX, y: e.clientY, vx: S.view.x, vy: S.view.y }; return; }
+    if (e.button === 1 || S.space) { closeLabel(); panning = { x: e.clientX, y: e.clientY, vx: S.view.x, vy: S.view.y }; return; }
     if (e.button !== 0) return;
-    if (S.tool === "edit") editDown(p, e); else drawDown(p);
+    if (S.tool === "label") labelDown(p, e); else { closeLabel(); if (S.tool === "edit") editDown(p, e); else drawDown(p); }
     draw();
   });
   cv.addEventListener("pointermove", (e) => {
@@ -255,6 +274,7 @@
     if (S.drag) { dragMove(p); return; }
     if (S.stroke) { strokeMove(p); return; }
     if (S.tool === "draw") { const h = S.draft ? null : hitBorder(p); S.hover = h ? h.point : null; cv.style.cursor = "crosshair"; draw(); }
+    else if (S.tool === "label") cv.style.cursor = S.space ? "grab" : hitRegion(p) ? "pointer" : "default";
     else { const sel = region(S.selected); cv.style.cursor = S.space ? "grab" : sel && (hitNode(sel, p) || hitLine(sel, p)) ? "pointer" : hitRegion(p) ? "move" : "default"; }
   });
   const up = (e) => {
@@ -265,6 +285,7 @@
   cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
   cv.addEventListener("wheel", (e) => {
     e.preventDefault(); if (!S.img) return;
+    closeLabel();
     const b = cv.getBoundingClientRect();
     if (e.ctrlKey || e.metaKey) zoomAt(Math.exp(-e.deltaY * 0.012), e.clientX - b.left, e.clientY - b.top);
     else { S.view.x -= e.deltaX; S.view.y -= e.deltaY; S.fitted = false; draw(); }
@@ -345,6 +366,7 @@
       if (!np) { S.undo.pop(); draw(); return; }
       r.paths[st.pi] = np; r.edited = true; refresh(true); return;
     }
+    if (st.mode === "new" && st.pts.length >= 2 && trySlice(st.pts)) return;
     pushUndo();
     if (st.pts.length < 2) {                                   // a press with no drag: just the start point
       if (st.mode === "new") { S.draft = { closed: false, nodes: [st.pts[0]], segs: [] }; refresh(); } else { S.undo.pop(); draw(); }
@@ -354,6 +376,30 @@
     const d = S.draft, n = d.nodes.length;
     if (n >= 2 && d.segs.length >= 2 && G.dist(d.nodes[n - 1], d.nodes[0]) * s <= CLOSE) finishDraft(true);
     else refresh();
+  }
+  /* Slice: a stroke that starts outside a region, goes right across it and ends outside splits it in two. */
+  function trySlice(line) {
+    const a = line[0], b = line[line.length - 1];
+    if (G.dist(a, b) * S.view.s <= CLOSE) return false;         // that is a closed loop: a new region
+    for (const r of S.regions) {
+      if (inside(r, a) || inside(r, b)) continue;
+      const oi = r.paths.reduce((bi, p, i) => (G.pathArea(p) > G.pathArea(r.paths[bi]) ? i : bi), 0);
+      const res = G.slice(r.paths[oi], line);
+      if (res === "miss") continue;
+      if (res === "many") { toast("To split a region, cross its outline once on the way in and once on the way out"); draw(); return true; }
+      if (res === "small") { toast("That would leave a piece too small to be a region"); draw(); return true; }
+      const holes = r.paths.filter((_, i) => i !== oi);
+      if (holes.some((h) => G.crossings(G.flatten(h, 2), line).length)) { toast("The cut goes through a hole. Delete the hole first, or cut beside it"); draw(); return true; }
+      pushUndo();
+      const parts = res.rings.map((ring, k) => Object.assign(strip(r), {
+        id: r.id + "-" + (++S.counter), name: r.name + "ab"[k], label: null, t: null, edited: true, split: true,
+        paths: [G.fitClosed(ring, 1.5)].concat(holes.filter((h) => G.inPoly(h.nodes[0], ring))),
+      }));
+      S.regions.splice(S.regions.indexOf(r), 1, ...parts);
+      S.selected = parts[0].id; S.hole = null; refresh(true); toast("Split " + r.name + " in two");
+      return true;
+    }
+    return false;
   }
   function finishDraft(snap) {
     const d = S.draft; if (!d) return;
@@ -381,7 +427,75 @@
     else { S.regions = S.regions.filter((x) => x !== r); S.selected = null; S.hole = null; }
     refresh(true);
   }
-  function setTool(t) { S.tool = t; S.hover = null; $("toolEdit").classList.toggle("on", t === "edit"); $("toolDraw").classList.toggle("on", t === "draw"); cv.style.cursor = t === "draw" ? "crosshair" : "default"; renderHint(); draw(); }
+  function setTool(t) { closeLabel(); S.tool = t; S.hover = null; $("toolEdit").classList.toggle("on", t === "edit"); $("toolDraw").classList.toggle("on", t === "draw"); $("toolLabel").classList.toggle("on", t === "label"); cv.style.cursor = t === "draw" ? "crosshair" : "default"; renderHint(); draw(); }
+
+  /* ---------------- label ---------------- */
+  function setClass(r, id) {
+    if ((r.cls || null) === (id || null)) return;
+    pushUndo(); if (id) r.cls = id; else delete r.cls;
+    refresh(true); if (S.labelFor === r.id) renderLabel(r);
+  }
+  function toggleUnsure(r) {
+    pushUndo(); if (r.unsure) delete r.unsure; else r.unsure = true;
+    refresh(true); if (S.labelFor === r.id) renderLabel(r);
+  }
+  function labelDown(p, e) {                                   // Label tool: click a region for its menu
+    const r = hitRegion(p);
+    if (r) { S.selected = r.id; S.hole = null; refresh(); openLabel(r, e); return; }
+    closeLabel();
+    if (S.selected) { S.selected = null; refresh(); }
+    panning = { x: e.clientX, y: e.clientY, vx: S.view.x, vy: S.view.y };
+  }
+  function renderLabel(r) {
+    const pop = $("labelPop");
+    pop.innerHTML = `<div class="pop-h">${esc(r.name)}</div>` + S.classes.map((c, i) =>
+      `<button class="pop-row ${r.cls === c.id ? "on" : ""}" data-cls="${esc(c.id)}" type="button"><span class="sw" style="background:rgb(${c.color})"></span><span class="pn">${esc(c.name)}</span>${i < 9 ? `<kbd>${i + 1}</kbd>` : ""}</button>`).join("") +
+      `<button class="pop-row ${classOf(r) ? "" : "on"}" data-cls="" type="button"><span class="sw none"></span><span class="pn">No class</span></button>
+      <div class="pop-sep"></div>
+      <button class="pop-row ${r.unsure ? "on" : ""}" id="popUnsure" type="button"><span class="sw q"></span><span class="pn">Unsure</span><kbd>U</kbd></button>
+      <input type="text" id="popNote" placeholder="Add a note" maxlength="200" aria-label="Note" value="${esc(r.note || "")}">
+      <button class="link pop-edit" id="popEdit" type="button">Edit classes</button>`;
+    const note = $("popNote"); let armed = false;
+    note.oninput = () => { if (!armed) { pushUndo(); armed = true; } if (note.value.trim()) r.note = note.value; else delete r.note; scheduleSave(); };
+    note.onchange = () => refresh(true);
+    note.onkeydown = (e) => { if (e.key === "Enter" || e.key === "Escape") { note.blur(); closeLabel(); } };
+  }
+  /* Open the menu beside the click (or beside the region when there was no click). */
+  function openLabel(r, e) {
+    const pop = $("labelPop"); S.labelFor = r.id; renderLabel(r);
+    const b = stage.getBoundingClientRect(), W = pop.offsetWidth, H = pop.offsetHeight, v = S.view;
+    let x, y;
+    if (e) { x = e.clientX - b.left + 18; y = e.clientY - b.top - H / 2; if (x + W > b.width - 8) x = e.clientX - b.left - W - 18; }
+    else { const bb = G.bbox(r.paths); x = bb.x1 * v.s + v.x + 14; y = (bb.y0 + bb.y1) / 2 * v.s + v.y - H / 2; if (x + W > b.width - 8) x = bb.x0 * v.s + v.x - W - 14; }
+    pop.style.left = Math.max(8, Math.min(b.width - W - 8, x)) + "px"; pop.style.top = Math.max(8, Math.min(b.height - H - 8, y)) + "px";
+    pop.classList.add("open");
+  }
+  function closeLabel() { if (!S.labelFor) return; S.labelFor = null; $("labelPop").classList.remove("open"); }
+
+  /* The class list of the current library. */
+  let draftClasses = [];
+  function showClasses() {
+    if (!S.lib) return;
+    draftClasses = S.classes.map((c) => Object.assign({}, c)); renderClasses();
+    $("classErr").textContent = ""; $("classModal").classList.add("show");
+  }
+  function renderClasses() {
+    $("classRows").innerHTML = draftClasses.map((c, i) => `<div class="cls-row" data-i="${i}"><span class="sw" style="background:rgb(${c.color})"></span><kbd>${i + 1}</kbd>
+      <input type="text" maxlength="24" value="${esc(c.name)}" placeholder="Class name" aria-label="Class name">
+      <label class="check"><input type="checkbox" ${c.exclude ? "checked" : ""}> Leave out of measurements</label>
+      <button class="icon-btn" data-rm type="button" title="Remove this class"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>`).join("")
+      || `<p class="note" style="margin:0">No classes. Add one below.</p>`;
+    $("classAdd").disabled = draftClasses.length >= 9;
+  }
+  async function saveClasses() {
+    try {
+      const j = await api("/api/editor/library/classes", { id: S.lib.id, classes: draftClasses.filter((c) => c.name.trim()) });
+      S.classes = j.classes; S.lib.classes = j.classes;
+      let lost = false;
+      for (const r of S.regions) if (r.cls && !classOf(r)) { delete r.cls; lost = true; }
+      $("classModal").classList.remove("show"); refresh(lost);
+    } catch (e) { $("classErr").textContent = e.message; }
+  }
 
   /* Grow / shrink: re-cut one region from the model's probability map at a different cut-off. */
   let sliderSeq = 0, sliderArmed = false;
@@ -410,8 +524,8 @@
     $("queue").innerHTML = q.length ? q.map((r) => {
       const c = r.meanProb, cls = c == null ? "" : c < 0.7 ? "low" : c < 0.85 ? "mid" : "";
       return `<button class="q-item ${r.id === S.selected ? "on" : ""}" data-id="${r.id}">
-        <span class="q-name">${esc(r.name)}</span>
-        ${r.source === "drawn" ? '<span class="tag">drawn</span>' : r.edited ? '<span class="tag">edited</span>' : ""}
+        ${classOf(r) ? `<span class="q-dot" style="background:rgb(${classOf(r).color})" title="${esc(classOf(r).name)}"></span>` : ""}<span class="q-name">${esc(r.name)}</span>
+        ${r.unsure ? '<span class="tag">unsure</span>' : ""}${r.source === "drawn" ? '<span class="tag">drawn</span>' : r.edited ? '<span class="tag">edited</span>' : ""}
         <span class="conf ${cls}">${c == null ? "" : Math.round(c * 100) + "%"}</span></button>`;
     }).join("") : `<p class="note" style="padding:6px 8px">${S.sid ? "No regions on this image. Use the Draw tool to add one." : "Nothing open."}</p>`;
     $("queue").querySelectorAll(".q-item").forEach((b) => (b.onclick = () => { const r = region(b.dataset.id); S.selected = r.id; S.hole = null; focusRegion(r); refresh(); }));
@@ -434,8 +548,10 @@
         <p class="note">${S.meta.has_prob ? "Shift the region's edge, changing most where the model was unsure."
           : "Shift the region's edge evenly in or out (this input has no probability map)."}
           ${r.edited ? " Deletes your edits." : ""}</p>`;
-    } else slider = `<p class="note">Drawn by hand, so there is no model outline to grow or shrink.</p>`;
+    } else slider = `<p class="note" style="margin-top:0">${r.split ? "Split from a larger region, so it can no longer be grown or shrunk from the model." : "Drawn by hand, so there is no model outline to grow or shrink."}</p>`;
+    const c = classOf(r);
     d.innerHTML = `
+      <div class="d-class"><span class="sw ${c ? "" : "none"}" ${c ? `style="background:rgb(${c.color})"` : ""}></span><span>${c ? esc(c.name) : "No class"}${r.unsure ? " · unsure" : ""}</span>${r.note ? `<span class="d-note" title="${esc(r.note)}">${esc(r.note)}</span>` : ""}</div>
       ${slider}
       <div class="nav3"><button class="btn danger" id="delRegion">Delete <kbd>Del</kbd></button><button class="btn" id="navPrev">Previous</button><button class="btn" id="navNext">Next <kbd>N</kbd></button></div>`;
     $("delRegion").onclick = deleteSelected;
@@ -455,8 +571,9 @@
     else if (S.tool === "edit") h = region(S.selected)
       ? `Drag a node to move it · drag the line to bend it · drag inside to move the whole region · double-click the line to add a node, a node to remove it · ${k("Del")} removes the region`
       : `Click a region to select it · drag empty space to pan · pinch or ${k(MOD)}-scroll to zoom`;
+    else if (S.tool === "label") h = `Click a region to give it a class · ${k("1")}–${k("9")} set the class of the selected region in any tool · ${k("U")} marks it unsure · hold ${k("X")} to hide the regions`;
     else if (S.draft) h = `Press the open end (orange) to continue · finish on the first node to close · ${k("Del")} removes the last node · ${k("Enter")} closes · ${k("Esc")} cancels`;
-    else h = "Press, drag, release to draw a new region. Draw inside a region to cut a hole. Start and end on an outline to reroute that stretch. Drag back along your line to un-draw.";
+    else h = "Press, drag, release to draw a new region. Draw inside a region to cut a hole. Start and end on an outline to reroute that stretch. Draw right across a region to split it. Drag back along your line to un-draw.";
     $("hint").innerHTML = h;
   }
   let toastTimer = null;
@@ -478,7 +595,7 @@
   async function useLibrary(id, index) {
     const lib = await api("/api/editor/library?id=" + encodeURIComponent(id));
     if (index == null) index = +(store.get("seg-editor-idx-" + id) || 0);
-    S.lib = lib; store.set("seg-editor-lib", id);
+    S.lib = lib; S.classes = lib.classes || DEFAULT_CLASSES; store.set("seg-editor-lib", id);
     await openCase(Math.min(Math.max(index, 0), lib.cases.length - 1));
   }
   /* Done mark: a finished image. Marking one done moves on to the next unfinished image. */
@@ -740,7 +857,29 @@
   $("open").onclick = showOpen; $("openEmpty").onclick = showOpen; $("export").onclick = () => showExport();
   $("undo").onclick = undo; $("redo").onclick = redo;
   $("zoomIn").onclick = () => zoomAt(1.25); $("zoomOut").onclick = () => zoomAt(0.8); $("fit").onclick = fitView;
-  $("toolEdit").onclick = () => setTool("edit"); $("toolDraw").onclick = () => setTool("draw");
+  $("toolEdit").onclick = () => setTool("edit"); $("toolDraw").onclick = () => setTool("draw"); $("toolLabel").onclick = () => setTool("label");
+  $("labelPop").addEventListener("click", (e) => {
+    const r = region(S.labelFor); if (!r) return;
+    const row = e.target.closest("[data-cls]");
+    if (row) { setClass(r, row.dataset.cls || null); closeLabel(); }
+    else if (e.target.closest("#popUnsure")) toggleUnsure(r);
+    else if (e.target.closest("#popEdit")) { closeLabel(); showClasses(); }
+  });
+  $("classRows").addEventListener("input", (e) => {
+    const row = e.target.closest(".cls-row"); if (!row) return;
+    const c = draftClasses[+row.dataset.i];
+    if (e.target.type === "checkbox") c.exclude = e.target.checked; else c.name = e.target.value;
+  });
+  $("classRows").addEventListener("click", (e) => {
+    const rm = e.target.closest("[data-rm]"); if (!rm) return;
+    draftClasses.splice(+rm.closest(".cls-row").dataset.i, 1); renderClasses();
+  });
+  $("classAdd").onclick = () => {
+    const free = PALETTE.find((p) => !draftClasses.some((c) => String(c.color) === String(p))) || PALETTE[draftClasses.length % PALETTE.length];
+    draftClasses.push({ id: "c" + Date.now().toString(36), name: "", color: free }); renderClasses();
+    const inputs = $("classRows").querySelectorAll("input[type=text]"); inputs[inputs.length - 1].focus();
+  };
+  $("classSave").onclick = saveClasses;
   $("opacity").oninput = (e) => { S.opacity = +e.target.value; draw(); };
   $("showModel").onchange = (e) => { S.showModel = e.target.checked; draw(); };
   $("showHeat").onchange = (e) => { S.showHeat = e.target.checked; draw(); };
@@ -775,7 +914,10 @@
     if (mod && k === "y") { e.preventDefault(); redo(); return; }
     if (mod) return;
     if (e.key === " ") { S.space = true; cv.style.cursor = "grab"; e.preventDefault(); return; }
-    if (k === "v") setTool("edit"); else if (k === "p") setTool("draw");
+    if (/^[1-9]$/.test(e.key) && region(S.selected) && S.classes[+e.key - 1]) { setClass(region(S.selected), S.classes[+e.key - 1].id); return; }
+    if (k === "u" && region(S.selected)) { toggleUnsure(region(S.selected)); return; }
+    if (k === "x") { if (!S.peek) { S.peek = true; draw(); } return; }
+    if (k === "v") setTool("edit"); else if (k === "p") setTool("draw"); else if (k === "l") setTool("label");
     else if (k === "n") step(e.shiftKey ? -1 : 1);
     else if (k === "d") toggleDone();
     else if (k === "m") { S.showModel = !S.showModel; $("showModel").checked = S.showModel; draw(); }
@@ -783,14 +925,14 @@
     else if (k === "+" || k === "=") zoomAt(1.25); else if (k === "-") zoomAt(0.8); else if (k === "0") fitView();
     else if (k === "?") $("keysModal").classList.add("show");
     else if (e.key === "Enter" && S.draft) finishDraft(false);
-    else if (e.key === "Escape") { if (S.stroke) S.stroke = null; else if (S.draft) { pushUndo(); S.draft = null; } else S.selected = null; refresh(); }
+    else if (e.key === "Escape") { if (S.labelFor) closeLabel(); else if (S.stroke) S.stroke = null; else if (S.draft) { pushUndo(); S.draft = null; } else S.selected = null; refresh(); }
     else if (e.key === "Backspace" || e.key === "Delete") {
       e.preventDefault();
       if (S.draft) { pushUndo(); const d = S.draft; if (d.segs.length) { d.segs.pop(); d.nodes.pop(); } else S.draft = null; refresh(); }
       else deleteSelected();
     }
   });
-  window.addEventListener("keyup", (e) => { if (e.key === " ") { S.space = false; cv.style.cursor = S.tool === "draw" ? "crosshair" : "default"; } });
+  window.addEventListener("keyup", (e) => { if (e.key.toLowerCase() === "x" && S.peek) { S.peek = false; draw(); } if (e.key === " ") { S.space = false; cv.style.cursor = S.tool === "draw" ? "crosshair" : "default"; } });
   new ResizeObserver(resize).observe(stage);
 
   resize(); renderPanel(); renderHint();
@@ -804,6 +946,6 @@
       if (store.get("seg-editor-welcomed") || q.has("selftest")) return;
       store.set("seg-editor-welcomed", "1"); tour();
     });
-  window.__editor = { S, draw, fitView, saveNow, modelRegions, toggleDone, showExport, runExport, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, setTool, step, undo, region, inside };   // for selftest.js
+  window.__editor = { S, draw, fitView, saveNow, modelRegions, toggleDone, showExport, runExport, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, setTool, step, undo, region, inside, setClass, openLabel, showClasses };   // for selftest.js
   if (new URLSearchParams(location.search).has("selftest")) { const sc = document.createElement("script"); sc.src = "/viewer/editor/selftest.js"; document.body.appendChild(sc); }
 })();

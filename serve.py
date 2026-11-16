@@ -216,6 +216,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._editor(eb.library_finish, body.get("id", ""))
         if url.path == "/api/editor/library/rename":
             return self._editor(eb.rename_library, body.get("id", ""), body.get("name", ""))
+        if url.path == "/api/editor/library/classes":
+            return self._editor(eb.set_classes, body.get("id", ""), body.get("classes") or [])
         if url.path == "/api/editor/library/delete":
             return self._editor(eb.delete_library, body.get("id", ""))
         if url.path == "/api/editor/library/done":
