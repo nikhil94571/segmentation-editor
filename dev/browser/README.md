@@ -17,6 +17,7 @@ mkdir -p scratch/export-test          # the self-test exports here
 | `tour-run.js <url> <outdir>` | Plays the whole tour, clicking Next at set times, and saves a screenshot per step |
 | `screenshot.js <url> <out.png> '<js>' [x,y,w,h]` | Loads the page, runs some JavaScript, saves a screenshot (optionally a clip) |
 | `eval.js '<js>'` | Runs JavaScript in the open page and prints the result |
+| `firefox-check.js <url> <out.png>` | The same kind of check in headless Firefox (WebDriver BiDi); how to start Firefox is at the top of the file |
 | `hosted-check.js` | Calls the hosted server's API as a visitor (classes, pixel size, CSV, reshape); edit the address at the top |
 
 The self-test draws and cuts at fixed places on the simulated practice-01, so run its server with
