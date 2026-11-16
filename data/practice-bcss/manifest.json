@@ -1,0 +1,72 @@
+{
+ "pixel_um": 0.5,
+ "model": "v1-base.pt",
+ "model_trained_on": [
+  "TCGA-A1-A0SP-DX1_xmin6798_ymin53719_MPP-0.2500.png",
+  "TCGA-AC-A6IW-DX1_xmin15387_ymin6222_MPP-0.2500.png",
+  "TCGA-A7-A4SE-DX1_xmin50530_ymin11318_MPP-0.2500.png",
+  "TCGA-AO-A124-DX1_xmin16436_ymin1748_MPP-0.2500.png",
+  "TCGA-A7-A6VY-DX1_xmin7308_ymin29955_MPP-0.2500.png",
+  "TCGA-GI-A2C9-DX1_xmin20882_ymin11843_MPP-0.2500.png",
+  "TCGA-EW-A1PB-DX1_xmin57214_ymin25940_MPP-0.2500.png",
+  "TCGA-BH-A1FC-DX1_xmin52216_ymin33355_MPP-0.2500.png"
+ ],
+ "source": "BCSS (Amgad et al. 2019, Bioinformatics 35(18):3461), CC0 1.0. Colour-normalised regions from TCGA breast cancer slides, shown at 0.5 \u00b5m per pixel. https://github.com/PathologyDataScience/BCSS",
+ "expert": "expert/<name>_expert.png: 255 tumour, 0 other tissue, 128 outside the annotated region",
+ "cases": [
+  {
+   "name": "bcss-01",
+   "source": "TCGA-EW-A1P1-DX1_xmin50567_ymin38988_MPP-0.2500.png",
+   "size_px": [
+    1954,
+    2184
+   ],
+   "model_dice_vs_expert": 0.8271
+  },
+  {
+   "name": "bcss-02",
+   "source": "TCGA-AR-A1AR-DX1_xmin12708_ymin29100_MPP-0.2500.png",
+   "size_px": [
+    1600,
+    2530
+   ],
+   "model_dice_vs_expert": 0.839
+  },
+  {
+   "name": "bcss-03",
+   "source": "TCGA-A8-A07C-DX1_xmin23538_ymin17397_MPP-0.2500.png",
+   "size_px": [
+    1478,
+    1786
+   ],
+   "model_dice_vs_expert": 0.6402
+  },
+  {
+   "name": "bcss-04",
+   "source": "TCGA-C8-A131-DX1_xmin43049_ymin10894_MPP-0.2500.png",
+   "size_px": [
+    1104,
+    1309
+   ],
+   "model_dice_vs_expert": 0.7746
+  },
+  {
+   "name": "bcss-05",
+   "source": "TCGA-AN-A0G0-DX1_xmin32741_ymin14546_MPP-0.2500.png",
+   "size_px": [
+    1514,
+    1986
+   ],
+   "model_dice_vs_expert": 0.9022
+  },
+  {
+   "name": "bcss-06",
+   "source": "TCGA-AO-A0J4-DX1_xmin17194_ymin10629_MPP-0.2500.png",
+   "size_px": [
+    1564,
+    3452
+   ],
+   "model_dice_vs_expert": 0.9527
+  }
+ ]
+}

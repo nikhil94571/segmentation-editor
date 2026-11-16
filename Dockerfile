@@ -7,6 +7,7 @@ COPY *.py ./
 COPY viewer ./viewer
 COPY data/tissue_2k ./data/tissue_2k
 COPY data/practice ./data/practice
+COPY data/practice-bcss ./data/practice-bcss
 # Hugging Face Spaces run the container as a non-root user, so the data folder is writable by anyone inside it
 RUN mkdir -p /data && chmod 777 /data
 ENV HOSTED=1 DATA_DIR=/data PORT=8080 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1

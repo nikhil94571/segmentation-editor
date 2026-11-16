@@ -1237,7 +1237,7 @@
   const q = new URLSearchParams(location.search), wantLib = q.get("lib") ?? store.get("seg-editor-lib") ?? "practice";
   if (wantLib) window.__ready = useLibrary(wantLib, q.has("i") ? +q.get("i") : null).catch(() => closeImage());
   renderNav();
-  api("/api/editor/settings").then((st) => { S.hosted = !!st.hosted; document.documentElement.classList.toggle("hosted", S.hosted); }).catch(() => {})
+  api("/api/editor/settings").then((st) => { S.hosted = !!st.hosted; S.practiceSet = st.practice_set || "simulated"; document.documentElement.classList.toggle("hosted", S.hosted); }).catch(() => {})
     .then(() => window.__ready)
     .then(() => {                                               // a first visit starts with the tour
       if (store.get("seg-editor-welcomed") || q.has("selftest")) return;

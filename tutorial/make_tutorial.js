@@ -3,6 +3,8 @@
    The library is the built-in practice library of a fresh data folder (see tutorial/README.md). */
 const fs = require("fs"), path = require("path"), { execFileSync } = require("child_process");
 const { connect, hand, sleep, W, H, ROOT, TMP } = require("./rec.js");
+const D = require("../viewer/editor/demo-spots.js")[process.env.PRACTICE_SET || "bcss"];   // where to act on practice-01
+const XY = (q) => R.at(q[0], q[1]);
 const SLIDE = 0;                                              // practice-01: the image most clips use
 const CANVAS = { x: 4, y: 66, w: 800, h: 500 };               // tool rail + left part of the image area
 const CBOX = { x: 96, y: 86, w: 690, h: 462 };                // where the image window sits inside CANVAS
@@ -29,7 +31,6 @@ const inside = async (name) => { const p = await R.ev(`(()=>{const q=__editor.la
 const cutLine = async (x0, y0, x1, y1) => hand(await R.ats([[x0, y0], [(2 * x0 + x1) / 3 + 3, (2 * y0 + y1) / 3], [(x0 + 2 * x1) / 3 - 3, (y0 + 2 * y1) / 3], [x1, y1]]), { wobble: 0.5 });
 const tool = async (t) => R.ev(`__editor.setTool(${JSON.stringify(t)})`);
 
-const GLAND = [[1300, 990], [1322, 952], [1385, 936], [1447, 950], [1478, 990], [1523, 1003], [1550, 1040], [1552, 1100], [1528, 1150], [1478, 1168], [1428, 1135], [1392, 1155], [1340, 1140], [1322, 1085], [1298, 1045]];
 
 const scenes = {
   /* 1. The practice images: step through them, or pick one from the list */
@@ -50,12 +51,12 @@ const scenes = {
   async zoom() {
     await R.load(SLIDE);
     await start("02-zoom", FULL, { x: 420, y: 520 });
-    const g = await R.at(1560, 760); await R.move(g); await R.hold(0.3);
+    const g = await XY(D.zoom.at); await R.move(g); await R.hold(0.3);
     await R.ev(`__key("<b>⌘</b> + scroll &nbsp;·&nbsp; or pinch", 508, 640, 2600)`); await R.hold(0.5);
     for (let i = 0; i < 26; i++) { await R.wheel(0, -4.4 * Math.sin((i + 0.5) / 26 * Math.PI), 4); await R.cursor(); }
     await R.hold(0.9);
     await R.ev(`__key("Drag empty space to move around", 508, 640, 2600)`);
-    const e = await R.at(1500, 1010); await R.drag(e, { x: e.x + 150, y: e.y - 190 }, { dur: 1.3, after: 0.3 });
+    const e = await XY(D.zoom.pan); await R.drag(e, { x: e.x + 150, y: e.y - 190 }, { dur: 1.3, after: 0.3 });
     await R.drag(null, { x: R.pos.x - 230, y: R.pos.y + 60 }, { dur: 1.1, after: 0.6 });
     await R.click(await R.el("#fit"), { after: 0.5 });
     await finish(0.45);
@@ -65,7 +66,7 @@ const scenes = {
   async select() {
     await R.load(SLIDE);
     await start("03-select", { x: 232, y: 64, w: 1042, h: 650 }, { x: 420, y: 560 });
-    await R.click(await R.at(1620, 600), { after: 1.1 });
+    await R.click(await inside(D.main), { after: 1.1 });
     await R.click(await R.el("#queue .q-item:nth-child(4)"), { after: 1.3 });
     await R.move({ x: 800, y: 600 }); await R.key("n", { after: 1.3 });
     await R.key("n", { after: 0.7 });
@@ -74,44 +75,38 @@ const scenes = {
 
   /* 4. Move a node */
   async node() {
-    await R.load(SLIDE); await view(1400, 480, 1830, 770, CBOX);
+    await R.load(SLIDE); await view(...D.work, CBOX);
     await start("04-node", CANVAS, { x: 240, y: 430 });
-    await R.click(await R.at(1640, 600), { after: 0.8 });
-    const n = await node("region-04", 1659, 656);
-    await R.drag(n, await R.at(1668, 716), { dur: 1.2, after: 0.5 });
-    const n2 = await node("region-04", 1605, 651);
-    await R.drag(n2, await R.at(1612, 700), { dur: 1.0, after: 0.3 });
+    await R.click(await inside(D.main), { after: 0.8 });
+    await R.drag(await node(D.main, ...D.nodes[0].from), await XY(D.nodes[0].to), { dur: 1.2, after: 0.5 });
+    await R.drag(await node(D.main, ...D.nodes[1].from), await XY(D.nodes[1].to), { dur: 1.0, after: 0.3 });
     await R.move({ x: R.pos.x - 110, y: R.pos.y + 40 }); await finish();
   },
 
   /* 5. Bend the line */
   async bend() {
-    await R.load(SLIDE); await view(1400, 480, 1830, 770, CBOX); await select("region-04");
+    await R.load(SLIDE); await view(...D.work, CBOX); await select(D.main);
     await start("05-bend", CANVAS, { x: 250, y: 420 });
-    const a = await onLine("region-04", 1708, 610);
-    await R.drag(a, { x: a.x + 30, y: a.y - 14 }, { dur: 1.1, after: 0.5 });
-    const b = await onLine("region-04", 1536, 610);
-    await R.drag(b, { x: b.x - 26, y: b.y + 6 }, { dur: 1.0, after: 0.3 });
+    const sc = await R.ev("__editor.S.view.s");
+    for (const [i, bd] of D.bendClip.entries()) { const a = await onLine(D.main, ...bd.at); await R.drag(a, { x: a.x + bd.by[0] * sc, y: a.y + bd.by[1] * sc }, { dur: i ? 1.0 : 1.1, after: i ? 0.3 : 0.5 }); }
     await R.move({ x: R.pos.x - 60, y: R.pos.y + 90 }); await finish();
   },
 
   /* 6. Add and remove nodes */
   async addnode() {
-    await R.load(SLIDE); await view(1400, 480, 1830, 770, CBOX); await select("region-04");
+    await R.load(SLIDE); await view(...D.work, CBOX); await select(D.main);
     await start("06-add-remove-node", CANVAS, { x: 250, y: 420 });
-    const a = await onLine("region-04", 1630, 652);
-    await R.dbl(a, { after: 0.7 });
-    await R.drag(null, await R.at(1640, 712), { dur: 1.1, after: 0.6 });
-    await R.dbl(await node("region-04", 1576, 567), { after: 0.5 });
-    await R.dbl(await node("region-04", 1566, 565), { after: 0.4 });
+    await R.dbl(await onLine(D.main, ...D.addNode.at), { after: 0.7 });
+    await R.drag(null, await XY(D.addNode.to), { dur: 1.1, after: 0.6 });
+    for (const q of D.addNode.remove) await R.dbl(await node(D.main, ...q), { after: 0.45 });
     await R.move({ x: R.pos.x - 70, y: R.pos.y + 110 }); await finish();
   },
 
   /* 7. Move a whole region */
   async moveregion() {
-    await R.load(SLIDE); await view(1300, 440, 1930, 860, CBOX);
+    await R.load(SLIDE); await view(...D.moveView, CBOX);
     await start("07-move-region", CANVAS, { x: 250, y: 430 });
-    const a = await R.at(1640, 600);
+    const a = await inside(D.main);
     await R.drag(a, { x: a.x + 64, y: a.y - 22 }, { dur: 1.3, after: 0.5 });
     await R.drag(null, { x: a.x + 6, y: a.y + 4 }, { dur: 1.2, after: 0.3 });
     await R.move({ x: R.pos.x - 150, y: R.pos.y + 130 }); await finish(0.4);
@@ -119,18 +114,18 @@ const scenes = {
 
   /* 8. Draw a new region */
   async draw() {
-    await R.load(SLIDE); await view(1180, 860, 1800, 1250, CBOX);
+    await R.load(SLIDE); await view(...D.missed.view, CBOX);
     await start("08-draw", CANVAS, { x: 300, y: 300 });
     await R.click(await R.el("#toolDraw"), { after: 0.5 });
-    await stroke(await way(GLAND, { closed: true }), { speed: 215, after: 0.4 });
+    await stroke(await way(D.missed.loop, { closed: true }), { speed: 215, after: 0.4 });
     await R.move({ x: R.pos.x - 120, y: R.pos.y + 150 }); await finish();
   },
 
   /* 9. Draw in several strokes: stop, continue from the orange end, close on the first node */
   async parts() {
-    await R.load(SLIDE); await view(1180, 860, 1800, 1250, CBOX); await tool("draw");
+    await R.load(SLIDE); await view(...D.missed.view, CBOX); await tool("draw");
     await start("09-draw-in-parts", CANVAS, { x: 300, y: 330 });
-    const all = await way(GLAND, { closed: true }), cut1 = Math.round(all.length * 0.36), cut2 = Math.round(all.length * 0.7);
+    const all = await way(D.missed.loop, { closed: true }), cut1 = Math.round(all.length * 0.36), cut2 = Math.round(all.length * 0.7);
     await stroke(all.slice(0, cut1 + 1), { speed: 215, after: 0.3 });
     await R.move({ x: R.pos.x + 70, y: R.pos.y - 50 }); await R.hold(0.7);          // hand comes off, has a look
     const end = async () => { const p = await R.ev("(()=>{const n=__editor.S.draft.nodes;return [n[n.length-1].x,n[n.length-1].y]})()"); return R.at(p[0], p[1]); };
@@ -142,9 +137,9 @@ const scenes = {
 
   /* 10. Fix a slip while drawing: drag back along the line, or Backspace for the last node */
   async undraw() {
-    await R.load(SLIDE); await view(1180, 860, 1800, 1250, CBOX); await tool("draw");
+    await R.load(SLIDE); await view(...D.missed.view, CBOX); await tool("draw");
     await start("10-undraw", CANVAS, { x: 300, y: 330 });
-    const all = await way(GLAND, { closed: true }), k = Math.round(all.length * 0.3);
+    const all = await way(D.missed.loop, { closed: true }), k = Math.round(all.length * 0.3);
     const good = all.slice(0, k + 1), tip = good[good.length - 1];
     const slip = hand([tip, { x: tip.x + 34, y: tip.y - 30 }, { x: tip.x + 86, y: tip.y - 44 }, { x: tip.x + 132, y: tip.y - 30 }], { wobble: 0.5 });
     await R.move(good[0]); await R.hold(0.2); await R.press(); await R.hold(0.1);
@@ -157,38 +152,39 @@ const scenes = {
 
   /* 11. Extend a region: start on its outline, draw the new edge, end on the outline */
   async extend() {
-    await R.load(SLIDE); await view(1400, 480, 1830, 770, CBOX); await tool("draw");
+    await R.load(SLIDE); await view(...D.work, CBOX); await tool("draw");
     await start("11-extend", CANVAS, { x: 260, y: 430 });
-    const a = await onLine("region-04", 1570, 640), b = await onLine("region-04", 1712, 702);
-    const mid = await R.ats([[1578, 690], [1612, 728], [1662, 738], [1698, 722]]);
+    const a = await onLine(D.main, ...D.extend.a), b = await onLine(D.main, ...D.extend.b);
+    const mid = await R.ats(D.extend.mid);
     await stroke(hand([a].concat(mid, [b]), { wobble: 0.7 }), { speed: 190, after: 0.5 });
     await R.move({ x: R.pos.x - 150, y: R.pos.y + 60 }); await finish();
   },
 
   /* 12. Trim a region: same move, drawn through the region */
   async trim() {
-    await R.load(SLIDE); await view(-40, 1390, 390, 1680, CBOX); await tool("draw");
+    await R.load(SLIDE); await view(...D.trim.view, CBOX); await tool("draw");
     await start("12-trim", CANVAS, { x: 560, y: 200 });
-    const a = await onLine("region-03", 146, 1508), b = await onLine("region-03", 150, 1596);
-    const mid = await R.ats([[136, 1532], [132, 1560], [140, 1582]]);
+    const a = await onLine(D.trim.region, ...D.trim.a), b = await onLine(D.trim.region, ...D.trim.b);
+    const mid = await R.ats(D.trim.mid);
     await stroke(hand([a].concat(mid, [b]), { wobble: 0.6 }), { speed: 170, after: 0.5 });
     await R.move({ x: R.pos.x + 170, y: R.pos.y - 120 }); await finish();
   },
 
   /* 13. Cut a hole: draw a closed shape inside a region */
   async hole() {
-    await R.load(SLIDE); await view(1560, 690, 1870, 900, CBOX); await tool("draw");
+    await R.load(SLIDE); await view(...D.hole.view, CBOX); await tool("draw");
     await start("13-cut-hole", CANVAS, { x: 300, y: 420 });
-    await stroke(await way([[1716, 808], [1725, 826], [1719, 850], [1704, 876], [1688, 884], [1684, 870], [1696, 846], [1704, 822]], { closed: true, wobble: 0.6 }), { speed: 170, after: 0.5 });
+    await stroke(await way(D.hole.loop, { closed: true, wobble: 0.6 }), { speed: 170, after: 0.5 });
     await R.move({ x: R.pos.x - 170, y: R.pos.y + 70 }); await finish();
   },
 
   /* 14. Remove a hole: click inside it, press Delete */
   async unhole() {
-    await R.load(SLIDE); await view(1560, 690, 1870, 900, CBOX);
-    await R.ev(`(()=>{const r=${reg("region-02")},pts=[];for(let i=0;i<40;i++){const t=i/40*6.2832;pts.push({x:1782+21*Math.cos(t)+5*Math.cos(2*t),y:762+15*Math.sin(t)});}r.paths.push(G.fitClosed(pts,1.5));r.edited=true;__editor.refresh();})()`);
+    await R.load(SLIDE); await view(...D.hole.view, CBOX);
+    const [hx, hy] = D.hole.centre;
+    await R.ev(`(()=>{const r=${reg(D.hole.region)},pts=[];for(let i=0;i<40;i++){const t=i/40*6.2832;pts.push({x:${hx}+21*Math.cos(t)+5*Math.cos(2*t),y:${hy}+15*Math.sin(t)});}r.paths.push(G.fitClosed(pts,1.5));r.edited=true;__editor.refresh();})()`);
     await start("14-remove-hole", CANVAS, { x: 300, y: 420 });
-    await R.click(await R.at(1782, 762), { after: 0.9 });
+    await R.click(await XY(D.hole.centre), { after: 0.9 });
     await R.move({ x: R.pos.x + 150, y: R.pos.y + 110 });
     await R.key("Backspace", { cap: "Delete", after: 0.6 });
     await finish();
@@ -196,9 +192,9 @@ const scenes = {
 
   /* 15. Grow / shrink slider */
   async slider() {
-    await R.load(SLIDE); await view(1380, 470, 1850, 790, BBOX);
+    await R.load(SLIDE); await view(...D.barView, BBOX);
     await start("15-grow-shrink", BAR, { x: 240, y: 560 });
-    await R.click(await R.at(1640, 600), { after: 0.7 });
+    await R.click(await inside(D.main), { after: 0.7 });
     const s = await R.el("#slider"), t0 = await R.ev("+document.getElementById('slider').value");
     const X = (t) => s.l + 8 + (t - 0.05) / 0.9 * (s.w - 16);
     await R.move({ x: X(t0), y: s.y }); await R.hold(0.2); await R.press(); await R.hold(0.15);
@@ -211,9 +207,9 @@ const scenes = {
 
   /* 16. Delete a region */
   async del() {
-    await R.load(SLIDE); await view(1250, 470, 1960, 1000, SBOX);
+    await R.load(SLIDE); await view(...D.sideView, SBOX);
     await start("16-delete", SIDE, { x: 560, y: 470 });
-    await R.click(await R.at(1640, 600), { after: 0.8 });
+    await R.click(await inside(D.main), { after: 0.8 });
     await R.move({ x: 700, y: 470 });
     await R.key("Backspace", { cap: "Delete", bx: 712, by: 506, after: 0.7 });
     await finish();
@@ -221,11 +217,11 @@ const scenes = {
 
   /* 17. Undo and redo */
   async undo() {
-    await R.load(SLIDE); await view(1330, 500, 1900, 760, { x: 380, y: 110, w: 520, h: 440 });
+    await R.load(SLIDE); await view(...D.undoView, { x: 380, y: 110, w: 520, h: 440 });
     const clip = { x: 356, y: 0, w: 920, h: 575 };
     await start("17-undo", clip, { x: 520, y: 480 });
-    await R.click(await R.at(1640, 600), { after: 0.5 });
-    await R.drag(await node("region-04", 1659, 656), await R.at(1700, 745), { dur: 1.0, after: 0.5 });
+    await R.click(await inside(D.main), { after: 0.5 });
+    await R.drag(await node(D.main, ...D.undoNode.from), await XY(D.undoNode.to), { dur: 1.0, after: 0.5 });
     await R.click(await R.el("#undo"), { after: 1.0 });
     await R.click(await R.el("#redo"), { after: 1.0 });
     await R.move({ x: 620, y: 500 });
@@ -236,8 +232,9 @@ const scenes = {
 
   /* 18. Display helpers */
   async display() {
-    await R.load(SLIDE); await view(1250, 470, 1960, 1000, SBOX);
-    await R.ev(`(()=>{const r=${reg("region-04")},p=r.paths[0];G.moveNode(p,p.nodes.findIndex(n=>Math.round(n.x)===1659),{x:12,y:58});G.moveNode(p,p.nodes.findIndex(n=>Math.round(n.x)===1605),{x:8,y:46});r.edited=true;__editor.refresh();})()`);
+    await R.load(SLIDE); await view(...D.sideView, SBOX);
+    await R.ev(`(()=>{const r=${reg(D.main)},p=r.paths[0],near=(q)=>{let b=0;p.nodes.forEach((n,i)=>{if(Math.hypot(n.x-q[0],n.y-q[1])<Math.hypot(p.nodes[b].x-q[0],p.nodes[b].y-q[1]))b=i;});return b;};
+      for(const m of ${JSON.stringify(D.nodes)}){const i=near(m.from),n=p.nodes[i];G.moveNode(p,i,{x:m.to[0]-n.x,y:m.to[1]-n.y});}r.edited=true;__editor.refresh();})()`);
     await start("18-display", SIDE, { x: 700, y: 420 });
     const o = await R.el("#opacity"), X = (v) => o.l + 8 + v / 0.8 * (o.w - 16);
     await R.move({ x: X(0.4), y: o.y }); await R.hold(0.2); await R.press(); await R.hold(0.1);
@@ -290,23 +287,23 @@ const scenes = {
 
   /* 22. Split a region: a line drawn right across it. The pieces share the cut. */
   async split() {
-    await R.load(SLIDE); await view(1400, 480, 1830, 770, CBOX);
+    await R.load(SLIDE); await view(...D.work, CBOX);
     await start("22-split", CANVAS, { x: 260, y: 430 });
     await R.click(await R.el("#toolDraw"), { after: 0.5 });
-    await stroke(await cutLine(1640, 505, 1640, 760), { speed: 190, after: 0.9 });
+    await stroke(await cutLine(...D.split.line), { speed: 190, after: 0.9 });
     await R.click(await R.el("#toolEdit"), { after: 0.4 });
-    await R.click(await R.at(1600, 610), { after: 0.6 });
-    const m = await R.at(1640, 620);
-    await R.drag(m, { x: m.x + 36, y: m.y + 4 }, { dur: 1.2, after: 0.6 });
+    await R.click(await inside(D.main + "a"), { after: 0.6 });
+    const m = await onLine(D.main + "a", ...D.split.drag), sc = await R.ev("__editor.S.view.s");
+    await R.drag(m, { x: m.x + D.split.by[0] * sc, y: m.y + D.split.by[1] * sc }, { dur: 1.2, after: 0.6 });
     await R.move({ x: R.pos.x - 150, y: R.pos.y + 110 }); await finish();
   },
 
   /* 23. Grow, shrink and band by a typed distance */
   async reshape() {
-    await R.load(SLIDE); await view(1380, 470, 1850, 790, BBOX);
+    await R.load(SLIDE); await view(...D.barView, BBOX);
     await R.ev("document.getElementById('sbDist').value=12");
     await start("23-reshape", BAR, { x: 240, y: 560 });
-    await R.click(await R.at(1640, 600), { after: 0.8 });
+    await R.click(await inside(D.main), { after: 0.8 });
     await R.click(await R.el('#shapeBar [data-op="grow"]'), { after: 0.9 }); await R.click(null, { after: 0.9 });
     await R.click(await R.el('#shapeBar [data-op="shrink"]'), { after: 0.9 }); await R.click(null, { after: 0.9 });
     await R.click(await R.el('#shapeBar [data-op="band"]'), { after: 1.2 });
@@ -315,52 +312,52 @@ const scenes = {
 
   /* 24. Merge two regions that touch */
   async merge() {
-    await R.load(SLIDE); await view(1380, 470, 1850, 790, BBOX); await tool("draw");
-    await stroke(await cutLine(1640, 505, 1640, 760), { speed: 600, after: 0.1 }); await tool("edit");
+    await R.load(SLIDE); await view(...D.barView, BBOX); await tool("draw");
+    await stroke(await cutLine(...D.split.line), { speed: 600, after: 0.1 }); await tool("edit");
     await R.ev("__editor.S.selected=null;__editor.refresh()"); await sleep(2900);       // let the "Split" message go
     await start("24-merge", BAR, { x: 240, y: 560 });
-    await R.click(await R.at(1600, 610), { after: 0.8 });
+    await R.click(await inside(D.main + "a"), { after: 0.8 });
     await R.click(await R.el('#shapeBar [data-op="merge"]'), { after: 0.7 });
-    await R.click(await R.at(1680, 640), { after: 1.3 });
+    await R.click(await inside(D.main + "b"), { after: 1.3 });
     await R.move({ x: R.pos.x - 220, y: R.pos.y - 60 }); await finish();
   },
 
   /* 25. Label: say what a region is */
   async label() {
-    await R.load(SLIDE); await view(1400, 480, 1830, 770, CBOX);
+    await R.load(SLIDE); await view(...D.work, CBOX);
     await start("25-label", CANVAS, { x: 260, y: 430 });
     await R.click(await R.el("#toolLabel"), { after: 0.5 });
-    await R.click(await inside("region-04"), { after: 0.9 });
+    await R.click(await inside(D.main), { after: 0.9 });
     await R.click(await R.el('#labelPop [data-cls="tumour"]'), { after: 1.0 });
-    await R.click(await inside("region-04"), { after: 0.8 });
+    await R.click(await inside(D.main), { after: 0.8 });
     await R.click(await R.el("#popUnsure"), { after: 1.0 });
     await R.move({ x: R.pos.x - 200, y: R.pos.y + 150 }); await finish();
   },
 
   /* 26. Ruler: a straight distance, a region's longest diameter, the gap between two regions, the length along an outline */
   async ruler() {
-    await R.load(SLIDE); await view(1290, 470, 1920, 990, CBOX);
+    await R.load(SLIDE); await view(...D.measure.view, CBOX);
     await start("26-ruler", CANVAS, { x: 260, y: 430 });
     await R.click(await R.el("#toolRuler"), { after: 0.5 });
-    const empty = async () => R.click(await R.at(1830, 560), { after: 0.6 });
-    await R.drag(await R.at(1410, 560), await R.at(1500, 640), { dur: 1.1, after: 1.3 });        // drag: a straight distance
+    const empty = async () => R.click(await XY(D.measure.empty), { after: 0.6 });
+    await R.drag(await XY(D.measure.drag[0]), await XY(D.measure.drag[1]), { dur: 1.1, after: 1.3 });        // drag: a straight distance
     await empty();
-    await R.click(await inside("region-04"), { after: 1.6 });                                   // one region: its longest diameter
+    await R.click(await inside(D.main), { after: 1.6 });                                        // one region: its longest diameter
     await empty();
-    await R.click(await inside("region-04"), { after: 0.8 });                                   // a region, then another: the gap
-    await R.click(await inside("region-02"), { after: 1.8 });
+    await R.click(await inside(D.main), { after: 0.8 });                                        // a region, then another: the gap
+    await R.click(await inside(D.second), { after: 1.8 });
     await empty();
-    await R.click(await onLine("region-04", 1656, 552), { after: 0.7 });                        // two points on one outline: its length
-    await R.click(await onLine("region-04", 1720, 714), { after: 1.9 });
+    await R.click(await onLine(D.main, ...D.measure.pins[0]), { after: 0.7 });                  // two points on one outline: its length
+    await R.click(await onLine(D.main, ...D.measure.pins[1]), { after: 1.9 });
     await R.move({ x: R.pos.x - 220, y: R.pos.y + 60 }); await finish();
   },
 
   /* 27. The Measure panel, and switching to micrometres */
   async measure() {
-    await R.load(SLIDE); await view(1260, 500, 1930, 1010, LBOX);
+    await R.load(SLIDE); await view(...D.lowView, LBOX);
     await R.ev(`(()=>{const S=__editor.S,c=["tumour","tumour","stroma","tumour","exclude"];S.regions.forEach((r,i)=>{if(c[i])r.cls=c[i];});__editor.refresh();})()`);
     await start("27-measure", LOW, { x: 600, y: 600 });
-    await R.click(await R.at(1640, 600), { after: 0.6 });
+    await R.click(await inside(D.main), { after: 0.6 });
     const maxScroll = await R.ev("(()=>{const e=document.querySelector('.side-scroll');return e.scrollHeight-e.clientHeight})()");
     for (let i = 1; i <= 36; i++) { const t = i / 36, e = t * t * t * (10 - 15 * t + 6 * t * t); await R.ev(`document.querySelector('.side-scroll').scrollTop=${(maxScroll * e).toFixed(1)}`); await R.frame(); }
     await R.hold(1.3);
@@ -374,14 +371,14 @@ const scenes = {
   async email() {
     await R.load(SLIDE);
     await start("email", FULL, { x: 560, y: 520 });
-    await R.move(await R.at(1600, 745)); await R.hold(0.3);
+    await R.move(await XY(D.email.zoomAt)); await R.hold(0.3);
     for (let i = 0; i < 26; i++) { await R.wheel(0, -12.6 * Math.sin((i + 0.5) / 26 * Math.PI), 4); await R.cursor(); }
     await R.hold(0.6);
     await R.click(await R.el("#toolDraw"), { after: 0.3, dur: 0.8 });
-    const a = await onLine("region-04", 1570, 640), b = await onLine("region-04", 1712, 702);
-    await stroke(hand([a].concat(await R.ats([[1578, 690], [1612, 728], [1662, 738], [1698, 722]]), [b]), { wobble: 0.7 }), { speed: 210, after: 0.7 });
-    const c = await onLine("region-02", 1440, 892), d = await onLine("region-02", 1762, 890);
-    await stroke(hand([c].concat(await R.ats([[1475, 897], [1525, 904], [1585, 912], [1645, 917], [1700, 914], [1738, 904]]), [d]), { wobble: 0.6 }), { speed: 250, after: 0.5 });
+    const a = await onLine(D.main, ...D.extend.a), b = await onLine(D.main, ...D.extend.b);
+    await stroke(hand([a].concat(await R.ats(D.extend.mid), [b]), { wobble: 0.7 }), { speed: 210, after: 0.7 });
+    const E2 = D.email.second, c = await onLine(D.second, ...E2.a), d = await onLine(D.second, ...E2.b);
+    await stroke(hand([c].concat(await R.ats(E2.mid), [d]), { wobble: 0.6 }), { speed: 250, after: 0.5 });
     await R.move({ x: R.pos.x + 90, y: R.pos.y + 70 }); await R.hold(1.6);
     R.on = false;
     const dir = path.join(TMP, "email"), out = path.join(ROOT, "scratch", "editor-demo.gif"), pal = path.join(TMP, "email-palette.png");

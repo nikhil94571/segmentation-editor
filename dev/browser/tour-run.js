@@ -17,7 +17,7 @@ const fs = require("fs"); const sleep = (ms) => new Promise((r) => setTimeout(r,
   await ev("document.getElementById('tutBtn').click()"); await sleep(500); await ev("document.getElementById('tourBtn').click()"); await sleep(1500);
   const waits = [4200, 4200, 4500, 12500, 9000, 13500, 6500, 21000, 7500, 2500];
   for (let i = 0; i < waits.length; i++) { await sleep(waits[i]); await shot("s" + (i + 1));
-    console.log(i + 1, await ev("document.querySelector('.tour-card h4').textContent"), "| regions", await ev("__editor.S.regions.map(r=>r.name+(r.cls?':'+r.cls:'')+(r.edited?'*':'')).join(' ')"), "| ruler", await ev("__editor.S.ruler&&__editor.S.ruler.kind"), "| sel", await ev("__editor.S.selected"), "| fmts", await ev("[...document.querySelectorAll('input[name=exFmt]:checked')].map(x=>x.value).join(',')"));
+    console.log(i + 1, await ev("document.querySelector('.tour-card h4').textContent"), "| regions", await ev("__editor.S.regions.length"), "| ruler", await ev("__editor.S.ruler&&__editor.S.ruler.kind"), "| sel", await ev("__editor.S.selected"), "| fmts", await ev("[...document.querySelectorAll('input[name=exFmt]:checked')].map(x=>x.value).join(',')"));
     await ev("document.querySelector('.tour-next').click()"); }
   await sleep(900);
   console.log("after: active", await ev("window.Tour.active"), "regions", before, "->", await ev("__editor.S.regions.length"), "tool", await ev("__editor.S.tool"), "saved:", await ev("document.getElementById('saved').textContent"));

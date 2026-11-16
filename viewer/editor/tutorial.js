@@ -9,7 +9,7 @@
   const chapters = (hosted) => [
     { title: "Getting started", note: "Open an image and find your way around.", steps: [
       { id: "open", nav: "Open an image", title: "Open an image",
-        text: `Six practice images are loaded, each with a model's blue regions to correct. The arrows at the top left step through them. <b>Open</b> lists them all: click an image once to preview it, and again to open it. To switch to another library, click <b>Work on this</b> beside it.`,
+        text: `Six practice images are loaded, each with a model's blue regions to correct (breast cancer tissue from the public BCSS dataset, and the output of a model trained on it). The arrows at the top left step through them. <b>Open</b> lists them all: click an image once to preview it, and again to open it. To switch to another library, click <b>Work on this</b> beside it.`,
         clips: [["01-open", 1280, 760]] },
       { id: "import", nav: "Add your own images", title: "Add your own images",
         text: `In <b>Open</b>, drop a folder (or a .zip file) onto <b>Upload folder</b>, or click it to choose one. Each image is paired with its model output by file name, for example <span class="mono">slide1_image.png</span> with <span class="mono">slide1_prob.tif</span> or <span class="mono">slide1_mask.png</span>. For just one image, use the <b>Single file</b> tab.`,

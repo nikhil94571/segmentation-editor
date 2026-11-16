@@ -8,7 +8,8 @@
   const CANCEL = { cancelled: true };
   const jerk = (t) => t * t * t * (10 - 15 * t + 6 * t * t);    // how a hand moves from one point to another
   const lerp = (a, b, t) => a + (b - a) * t;
-  const GLAND = [[1300, 990], [1322, 952], [1385, 936], [1447, 950], [1478, 990], [1523, 1003], [1550, 1040], [1552, 1100], [1528, 1150], [1478, 1168], [1428, 1135], [1392, 1155], [1340, 1140], [1322, 1085], [1298, 1045]];
+  let D = null;                                                 // demo-spots.js: where to act on practice-01
+  const P = (q) => ({ x: q[0], y: q[1] });
 
   let root, card, cur, badge, dimPath, ringPath, cv;
   let active = false, run = 0, idx = 0, hosted = false;
@@ -166,7 +167,7 @@
 
   /* ---------------- the steps ---------------- */
   const stage = () => box("#stage", 0), K = (s) => `<kbd>${s}</kbd>`;
-  const WORK = [1400, 480, 1830, 770];                         // the view steps 3 to 7 share: region-04, close up
+  const WORK = () => D.work;                                   // the view steps 3 to 7 share: the main region, close up
   const row = (name) => document.querySelector(`#queue .q-item[data-id="${reg(name).id}"]`);
   const inside = (name) => { const q = Ed().labelPoint(reg(name)); return at(q.x, q.y); };
   const STEPS = [
@@ -174,10 +175,10 @@
       text: () => `Welcome! Watch this short tour to learn how to correct a segmented image. Click <b>Next</b>.`,
       async play(t) {
         await Promise.all([spot(t, [stage()]), whole(t)]);
-        await move(t, at(1640, 600), 1.0); await wait(t, 700); await move(t, at(1420, 800), 0.9); await wait(t, 500); await move(t, at(330, 1100), 1.1);
+        const o = D.overview; await move(t, at(...o[0]), 1.0); await wait(t, 700); await move(t, at(...o[1]), 0.9); await wait(t, 500); await move(t, at(...o[2]), 1.1);
       } },
     { title: "Six practice images", at: "#caseNav",
-      text: () => `Six practice images are loaded. The arrows step through them, and <b>Open</b> on the right lists them all and takes your own images.`,
+      text: () => `Six practice images are loaded.${D && D.missed.what === "lymphocytes" ? " They are breast cancer tissue from the public BCSS dataset, with a trained model's output in blue." : ""} The arrows step through them, and <b>Open</b> on the right lists them all and takes your own images.`,
       async play(t) {
         await Promise.all([spot(t, [union(box("#caseNav"), box("#sessionName")), box("#open")]), whole(t)]);
         const b = $("nextCase").getBoundingClientRect(); await move(t, { x: b.left + b.width / 2, y: b.top + b.height / 2 + 2 }); await wait(t, 900);
@@ -187,76 +188,78 @@
       text: () => `Click a region on the image, or its name in the list. Orange nodes appear on its outline: that is the region you are working on. The list starts with the regions the model was least sure about.`,
       async play(t) {
         await Promise.all([spot(t, [union(stage(), box(".side", 0))]), whole(t)]);
-        const el = row("region-04");
+        const el = row(D.main);
         if (el) {
           const b = el.getBoundingClientRect(); await move(t, { x: b.left + b.width / 2, y: b.top + b.height / 2 }); await wait(t, 150);
           down = true; ring(); showCur(); await wait(t, 110); down = false;
           const v0 = Object.assign({}, S().view); el.click(); S().view = v0; Ed().draw();     // the list zooms to the region: shown as a glide
-        } else await click(t, at(1620, 600), 300);
-        await look(t, ...WORK, 900);
-        await move(t, at(1700, 760), 0.9);
+        } else await click(t, inside(D.main), 300);
+        await look(t, ...WORK(), 900);
+        const wk = WORK(); await move(t, at(wk[2] - (wk[2] - wk[0]) * 0.3, wk[3] - (wk[3] - wk[1]) * 0.08), 0.9);
       } },
     { title: "Extend or trim a region",
       text: () => `Click the pencil, or press ${K("2")}. Start <b>on the outline</b> (an orange dot shows where), draw the new edge, and end back <b>on the same outline</b>. That stretch of the outline is replaced by your line.`,
       async play(t) {
-        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK())]);
         await clickEl(t, "#toolDraw", 500);
         say("Extend: draw the new edge outside the region", 3200);
-        await stroke(t, hand([onLine("region-04", 1570, 640)].concat(ats([[1578, 690], [1612, 728], [1662, 738], [1698, 722]]), [onLine("region-04", 1712, 702)]), false, 0.6), 200, 1000);
+        const ex = D.extend; await stroke(t, hand([onLine(D.main, ...ex.a)].concat(ats(ex.mid), [onLine(D.main, ...ex.b)]), false, 0.6), 200, 1000);
         say("Trim: draw through the region; the smaller piece is cut off", 3400);
-        await stroke(t, hand([onLine("region-04", 1562, 570)].concat(ats([[1566, 592], [1565, 616]]), [onLine("region-04", 1558, 639)]), false, 0.4), 150, 500);
+        const tr = D.trimMain; await stroke(t, hand([onLine(D.main, ...tr.a)].concat(ats(tr.mid), [onLine(D.main, ...tr.b)]), false, 0.4), 150, 500);
         await move(t, { x: pos.x + 150, y: pos.y + 60 });
       } },
-    { title: "Draw a region the model missed",
-      text: () => `Still with the pencil: press, draw around the area, and finish where you started. The shape fills in when the loop closes.`,
+    { title: () => (D && D.missed.what === "lymphocytes" ? "Draw a new region" : "Draw a region the model missed"),
+      text: () => `Still with the pencil: press, draw around the area, and finish where you started. The shape fills in when the loop closes.` +
+        (D && D.missed.what === "lymphocytes" ? ` Here, a cluster of lymphocytes, to give its own class.` : ""),
       async play(t) {
         Ed().setTool("draw");
-        await Promise.all([spot(t, [stage()]), look(t, 1180, 860, 1800, 1250)]);
-        await stroke(t, hand(ats(GLAND), true), 250, 500);
+        await Promise.all([spot(t, [stage()]), look(t, ...D.missed.view)]);
+        await stroke(t, hand(ats(D.missed.loop), true), 250, 500);
         await move(t, { x: pos.x - 110, y: pos.y + 90 });
       } },
     { title: "Adjust the outline",
       text: () => `Click the arrow, or press ${K("1")}, and select a region. <b>Drag a node</b> to move that part of the outline, then <b>drag the line</b> between nodes to bend it into shape.`,
       async play(t) {
         Ed().setTool("draw");                                  // as the step before left it
-        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK())]);
         await clickEl(t, "#toolEdit", 500);
-        await click(t, at(1640, 600), 700);
-        say("Drag a node"); await drag(t, nodeAt("region-04", 1659, 656), at(1668, 716), 1.2, 500);
-        await drag(t, nodeAt("region-04", 1605, 651), at(1612, 700), 1.0, 700);
+        await click(t, inside(D.main), 700);
+        say("Drag a node"); await drag(t, nodeAt(D.main, ...D.nodes[0].from), at(...D.nodes[0].to), 1.2, 500);
+        await drag(t, nodeAt(D.main, ...D.nodes[1].from), at(...D.nodes[1].to), 1.0, 700);
         say("Then drag the line between them to bend it");
-        const s = S().view.s, a = onLine("region-04", 1640, 709); await drag(t, a, { x: a.x + 1 * s, y: a.y + 15 * s }, 1.1, 500);
-        const b = onLine("region-04", 1594, 668); await drag(t, b, { x: b.x - 24 * s, y: b.y + 12 * s }, 1.0, 300);
+        const s = S().view.s;
+        for (const [i, bd] of D.bends.entries()) { const a = onLine(D.main, ...bd.at); await drag(t, a, { x: a.x + bd.by[0] * s, y: a.y + bd.by[1] * s }, i ? 1.0 : 1.1, i ? 300 : 500); }
         await move(t, { x: pos.x - 70, y: pos.y + 80 });
       } },
     { title: "Say what a region is",
       text: () => `Click the tag, or press ${K("3")}, then click a region and pick its class from the menu, or press its number. A coloured dot marks the region.`,
       async play(t) {
-        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK())]);
         await clickEl(t, "#toolLabel", 500);
-        await click(t, inside("region-04"), 700);
+        await click(t, inside(D.main), 700);
         await clickEl(t, "#labelPop [data-cls]", 700);
         await move(t, { x: pos.x + 130, y: pos.y + 120 });
       } },
     { title: "Measure",
       text: () => `Click the ruler, or press ${K("4")}. <b>Drag</b> for a straight distance. <b>Click a region</b> for its longest diameter, then <b>another region</b> for the gap between them. <b>Click two points</b> on an outline for the length along it. The <b>Measure</b> panel gives areas and the share of each class.`,
       async play(t) {
-        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1290, 470, 1920, 990)]);
+        const M = D.measure;
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...M.view)]);
         await clickEl(t, "#toolRuler", 500);
-        const clear = () => click(t, at(1830, 560), 600);
+        const clear = () => click(t, at(...M.empty), 600);
         say("Drag: a straight distance", 2200);
-        await drag(t, at(1410, 560), at(1500, 640), 1.1, 1300);
+        await drag(t, at(...M.drag[0]), at(...M.drag[1]), 1.1, 1300);
         await clear();
         say("Click a region: its longest diameter", 2200);
-        await click(t, inside("region-04"), 1600);
+        await click(t, inside(D.main), 1600);
         await clear();
         say("A region, then another: the gap between them", 2400);
-        await click(t, inside("region-04"), 800);
-        await click(t, inside("region-02"), 1700);
+        await click(t, inside(D.main), 800);
+        await click(t, inside(D.second), 1700);
         await clear();
         say("Two points on an outline: the length along it, both ways round", 3000);
-        await click(t, onLine("region-04", 1656, 552), 700);
-        await click(t, onLine("region-04", 1720, 714), 1900);
+        await click(t, onLine(D.main, ...M.pins[0]), 700);
+        await click(t, onLine(D.main, ...M.pins[1]), 1900);
         $("measure").classList.remove("shut"); Ed().refresh();
         $("measure").scrollIntoView({ block: "nearest" }); await wait(t, 60);
         await spot(t, [box("#measure", 2)]);
@@ -317,7 +320,7 @@
     reset();
     card.querySelector(".tour-n").textContent = `${idx + 1} of ${STEPS.length}`;
     card.querySelector(".tour-dots").innerHTML = STEPS.map((_, k) => `<i class="${k === idx ? "on" : k < idx ? "seen" : ""}"></i>`).join("");
-    card.querySelector("h4").textContent = st.title; card.querySelector(".tour-text").innerHTML = st.text();
+    card.querySelector("h4").textContent = typeof st.title === "function" ? st.title() : st.title; card.querySelector(".tour-text").innerHTML = st.text();
     card.querySelector(".tour-back").hidden = idx === 0;
     card.querySelector(".tour-next").textContent = st.last ? "Start practising" : "Next";
     placeCard(st.at); showCur();
@@ -353,7 +356,8 @@
       }
       if (!s.img || !s.meta || s.meta.name !== "practice-01") throw new Error("no practice image");
       const model = Ed().modelRegions();
-      if (!["region-03", "region-04"].every((n) => model.some((r) => r.name === n))) throw new Error("not the expected image");
+      D = (window.DEMO_SPOTS || {})[s.practiceSet || "simulated"];
+      if (!D || ![D.main, D.second].every((n) => model.some((r) => r.name === n))) throw new Error("not the expected image");
       base = JSON.stringify(model);
     } catch (e) {
       if (cameFrom) Ed().useLibrary(cameFrom.lib, cameFrom.index).catch(() => {});

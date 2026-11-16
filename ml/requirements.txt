@@ -1,0 +1,15 @@
+# The model work (ml/) only: the editor's server does not need any of this.
+# Install into its own environment, on a Python build that includes lzma (uv's managed Python does):
+#   uv venv .venv-ml --python 3.12 --python-preference only-managed
+#   uv pip install --python .venv-ml/bin/python -r ml/requirements.txt
+torch>=2.5
+torchvision>=0.20
+segmentation-models-pytorch>=0.4
+matplotlib>=3.9
+numpy>=2.0
+pillow>=11
+scikit-image>=0.26
+scipy>=1.14
+tifffile>=2025.5
+roifile>=2025.5
+shapely>=2.0

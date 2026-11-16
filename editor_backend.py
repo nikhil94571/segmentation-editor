@@ -318,12 +318,12 @@ SETTINGS = ROOT / "settings.json"
 
 def get_settings():
     if HOSTED:
-        return {"hosted": True, "export_dir": "", "root": "", "home": "", "platform": sys.platform}
+        return {"hosted": True, "export_dir": "", "root": "", "home": "", "platform": sys.platform, "practice_set": PRACTICE_SET}
     st = json.loads(SETTINGS.read_text()) if SETTINGS.exists() else {}
     d = Path(st.get("export_dir") or Path.home() / "Downloads")
     if not d.is_dir():
         d = Path.home() / "Downloads"
-    return {"export_dir": str(d), "root": str(ROOT), "home": str(Path.home()), "platform": sys.platform}
+    return {"export_dir": str(d), "root": str(ROOT), "home": str(Path.home()), "platform": sys.platform, "practice_set": PRACTICE_SET}
 
 
 def _dest(dest):
@@ -665,17 +665,29 @@ PRACTICE = ("pash-low", "gynecomastoid-mid", "fibrocystic-mid", "prolif-fibrocys
             "sclerosing-adenosis-low")
 
 
+# Which built-in practice images: "bcss" (a real model's output on BCSS breast cancer regions, data/practice-bcss/)
+# or "simulated" (the earlier simulated model outputs on Wikimedia images, data/practice/).
+PRACTICE_SET = os.environ.get("PRACTICE_SET", "bcss")
+
+
 def _seed_practice():
     """The built-in practice images, as a library. Created once; if deleted it stays deleted.
-    data/practice/ (in the repository) holds six model outputs for images in data/tissue_2k/. Without it
-    (an older checkout), every case made by make_cases.py is used."""
+    data/practice-bcss/ holds six outputs of the trained model (ml/), with their pixel size. data/practice/ holds
+    the earlier simulated outputs for images in data/tissue_2k/. Without either, every case of make_cases.py is used."""
     libs().mkdir(parents=True, exist_ok=True)
     marker = libs() / ".seeded"
     if marker.exists():
         return
     marker.write_text("1")
-    cases = []
-    if (ROOT / "data" / "practice").is_dir():
+    cases, extra = [], {}
+    bc = ROOT / "data" / "practice-bcss"
+    if PRACTICE_SET != "simulated" and (bc / "manifest.json").exists():
+        man = json.loads((bc / "manifest.json").read_text())
+        for i, c in enumerate(man["cases"], 1):
+            cases.append({"name": f"practice-{i:02d}", "route": "model", "sid": None,
+                          "files": {"image": f"practice-bcss/{c['name']}_image.jpg", "model": f"practice-bcss/{c['name']}_prob.png"}})
+        extra = {"pixel_um": man.get("pixel_um")}
+    elif (ROOT / "data" / "practice").is_dir():
         for i, src in enumerate(PRACTICE, 1):
             if (ROOT / "data" / "practice" / f"{src}_prob.png").exists():
                 cases.append({"name": f"practice-{i:02d}", "route": "model", "sid": None,
@@ -687,7 +699,7 @@ def _seed_practice():
                               "files": {"image": f"cases/{c.name}/tissue.png", "model": f"cases/{c.name}/prob.tif"}, "sid": None})
     if cases:
         _write_lib({"id": "practice", "name": "Practice images", "created": time.strftime("%Y-%m-%d %H:%M"),
-                    "root": "data", "own_files": False, "cases": cases})
+                    "root": "data", "own_files": False, "cases": cases, **extra})
 
 
 def _edited(case):
