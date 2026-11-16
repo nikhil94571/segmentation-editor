@@ -407,6 +407,59 @@ a.btn { text-decoration: none; }
 .tvid .pp svg { width: 15px; height: 15px; fill: currentColor; }
 .tut-end { margin: 40px 0 0 37px; padding: 16px 18px; border-radius: 14px; background: var(--panel-2); border: 1px solid var(--line-soft); font-size: var(--fs-body); color: var(--ink-soft); line-height: 1.5; max-width: 680px; }
 @media (max-width: 860px) { .tut-b { grid-template-columns: 1fr; } .tut-nav { display: none; } .tut-main { padding: 6px 18px 50px; } .tstep p, .tclip, .tut-end { margin-left: 0; } }
+
+/* ---- second pass: two-row reshape bar, roomier side panel and Measure ---- */
+.shape-bar { display: grid; grid-template-columns: auto 1px auto; align-items: center; column-gap: 10px; padding: 7px 10px; }
+.sb-grid { display: grid; grid-template-columns: auto auto; gap: 2px; }
+.sb-grid .sb { text-align: left; }
+.sb-v { width: 1px; height: auto; align-self: stretch; margin: 3px 0; }
+.sb-right { display: grid; gap: 4px; }
+.sb-row { display: flex; align-items: center; gap: 4px; }
+.sb-row input[type=range] { flex: 1; min-width: 110px; width: auto; padding: 0; border: none; accent-color: var(--accent); }
+.sb-row input[type=range]:disabled { opacity: .4; }
+.sb-end { font-size: var(--fs-label); text-transform: uppercase; letter-spacing: .05em; color: var(--ink-mute); padding: 0 3px; }
+.sb-row b { font-family: var(--font-mono); font-size: var(--fs-label); font-weight: 500; color: var(--ink-soft); min-width: 96px; text-align: right; margin-right: 6px; }
+.stage.has-bar .toast { bottom: 96px; }
+input[type=number] { -moz-appearance: textfield; appearance: textfield; }
+input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer-spin-button { -webkit-appearance: none; margin: 0; }
+
+.side-scroll { flex: 1; min-height: 0; overflow-y: auto; display: flex; flex-direction: column; scrollbar-width: thin; }
+.side-scroll > * { flex: none; }
+.side .sec { padding: 16px 18px; }
+.side .queue { flex: none; max-height: 208px; min-height: 0; padding: 0 10px 10px; }
+.side .detail { padding: 16px 18px; border-top: 1px solid var(--line-soft); display: grid; gap: 12px; }
+.side .detail:empty { display: none; }
+.side .detail .note { margin: 0; }
+.d-head { display: flex; align-items: baseline; gap: 10px; }
+.d-head .d-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.d-conf { font-size: var(--fs-small); color: var(--ink-mute); white-space: nowrap; }
+.d-classbtn { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 12px; border-radius: var(--r-ctl); border: 1px solid var(--line); font-size: var(--fs-small); color: var(--ink); text-align: left; }
+.d-classbtn:hover { background: var(--bg); }
+.d-classbtn .t { flex: 1; }
+.d-classbtn kbd { font-family: var(--font-mono); font-size: var(--fs-micro); color: var(--ink-mute); border: 1px solid var(--line); border-radius: 5px; padding: 0 5px; }
+.d-notetext { font-size: var(--fs-small); color: var(--ink-soft); font-style: italic; line-height: 1.45; }
+.side .detail .nav3 { margin-top: 0; }
+.side .measure { display: block; overflow: visible; min-height: 0; padding: 16px 18px; border-top: 1px solid var(--line-soft); }
+.meas-b { max-height: none; overflow: visible; margin-top: 16px; display: grid; gap: 18px; }
+.measure.shut .meas-b { display: none; }
+.meas-cap { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 9px; font-size: var(--fs-label); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-mute); }
+.meas-cap b { font-family: var(--font-mono); font-size: var(--fs-small); text-transform: none; letter-spacing: 0; color: var(--ink); }
+.stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.stat { background: var(--bg); border-radius: 12px; padding: 10px 12px; min-width: 0; }
+.stat span { display: block; font-size: var(--fs-micro); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-mute); }
+.stat b { display: block; margin-top: 5px; font-family: var(--font-mono); font-size: 15px; font-weight: 600; color: var(--ink); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.stat small, .meas-t small { font-size: var(--fs-label); font-weight: 400; color: var(--ink-mute); }
+.meas-t { margin-top: 0; }
+.meas-t td { padding: 8px 0; border-top: 1px solid var(--line-soft); color: var(--ink); }
+.meas-t tr:first-child td { border-top: none; padding-top: 2px; }
+.meas-t td:nth-child(3) { width: 48px; font-weight: 600; }
+.meas-t td:first-child .sw { margin-right: 9px; }
+.meas-b .note { margin: 0; line-height: 1.5; }
+.meas-b .note b { color: var(--ink); font-weight: 600; }
+.meas-scale { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: var(--fs-small); color: var(--ink-soft); }
+.meas-scale .in { display: flex; align-items: center; gap: 8px; color: var(--ink-mute); }
+.meas-scale input { width: 88px; padding: 6px 9px; text-align: right; }
+.meas-act { margin: 0; }
 </style>
 </head>
 <body>
@@ -453,20 +506,31 @@ a.btn { text-decoration: none; }
     </div></div>
     <div class="pop" id="labelPop"></div>
     <div class="shape-bar" id="shapeBar">
-      <button class="sb" data-op="merge" type="button" title="Join this region with one that touches or overlaps it">Merge</button>
-      <button class="sb" data-op="subtract" type="button" title="Cut another region's area out of this one">Subtract</button>
-      <button class="sb" data-op="fill" type="button" title="Remove every hole in this region">Fill holes</button>
-      <button class="sb" data-op="smooth" type="button" title="Smooth the outline, leaving fewer nodes">Smooth</button>
+      <div class="sb-grid">
+        <button class="sb" data-op="merge" type="button" title="Join this region with one that touches or overlaps it">Merge</button>
+        <button class="sb" data-op="subtract" type="button" title="Cut another region's area out of this one">Subtract</button>
+        <button class="sb" data-op="fill" type="button" title="Remove every hole in this region">Fill holes</button>
+        <button class="sb" data-op="smooth" type="button" title="Smooth the outline, leaving fewer nodes">Smooth</button>
+      </div>
       <span class="sb-v"></span>
-      <label for="sbDist">Distance</label><input type="number" id="sbDist" min="0" step="any" value="50"><span class="sb-u" id="sbUnit">px</span>
-      <button class="sb" data-op="grow" type="button" title="Move the whole edge outward by this distance">Grow</button>
-      <button class="sb" data-op="shrink" type="button" title="Move the whole edge inward by this distance">Shrink</button>
-      <button class="sb" data-op="band" type="button" title="Add a new region: a band of this width around the outside">Band</button>
+      <div class="sb-right">
+        <div class="sb-row">
+          <input type="number" id="sbDist" min="0" step="any" value="50" aria-label="Distance" title="Distance for Grow, Shrink and Band"><span class="sb-u" id="sbUnit">px</span>
+          <button class="sb" data-op="grow" type="button" title="Move the whole edge outward by this distance">Grow</button>
+          <button class="sb" data-op="shrink" type="button" title="Move the whole edge inward by this distance">Shrink</button>
+          <button class="sb" data-op="band" type="button" title="Add a new region: a band of this width around the outside">Band</button>
+        </div>
+        <div class="sb-row" id="sbSlideRow">
+          <span class="sb-end">Grow</span><input type="range" id="slider" min="0.05" max="0.95" step="0.01" value="0.5" aria-label="Grow or shrink from the model"><span class="sb-end">Shrink</span>
+          <b id="sliderVal"></b><button class="link" id="sliderReset" type="button">Reset</button>
+        </div>
+      </div>
     </div>
     <div class="toast" id="toast"></div>
   </main>
 
   <aside class="side">
+    <div class="side-scroll">
     <div class="sec">
       <div class="sec-h">Display</div>
       <div class="row"><label for="opacity">Fill opacity</label><input type="range" id="opacity" min="0" max="0.8" step="0.05" value="0.4"></div>
@@ -481,6 +545,7 @@ a.btn { text-decoration: none; }
     <div class="sec measure" id="measure">
       <button class="sec-h meas-h" id="measToggle" type="button"><span>Measure</span><svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
       <div class="meas-b" id="measBody"></div>
+    </div>
     </div>
     <div class="side-foot"><button class="btn done-btn" id="doneBtn" hidden title="Mark this image as done (D)"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg><span id="doneLabel">Mark done</span><kbd>D</kbd></button></div>
   </aside>

@@ -106,6 +106,12 @@
     out.slice = { regions_added: S.regions.length - nS, pieces: parts.length, areas: parts.map((x) => Math.round(area(x))), whole: Math.round(aT), draft_left: !!S.draft };
     E.undo(); out.slice.undo_restores = S.regions.length === nS && !!E.region(drawn.id);
     stroke(line);
+    // 12b2. one line right through both pieces splits both; a line that starts inside one piece only splits the other
+    const cxS = (bbS.x0 + bbS.x1) / 2, vert = [], half = [], n2 = S.regions.length;
+    for (let y = bbS.y0 - 45; y <= bbS.y1 + 45; y += 9) vert.push({ x: cxS, y });
+    stroke(vert); out.slice_through_two = { regions_added: S.regions.length - n2 }; E.undo();
+    for (let y = cyS - (cyS - bbS.y0) / 2; y <= bbS.y1 + 45; y += 9) half.push({ x: cxS, y });
+    stroke(half); out.slice_starting_inside_one = { regions_added: S.regions.length - n2, draft_left: !!S.draft }; E.undo();
     // 12c. label: a number key gives the selected region a class, U marks it unsure, the menu opens on a click
     const piece = S.regions.find((x) => x.name === tgt.name + "a");
     S.selected = piece.id; E.refresh(); key("2"); key("u");
@@ -117,12 +123,13 @@
     out.label_menu = { open: pop.classList.contains("open"), rows: pop.querySelectorAll("[data-cls]").length, inside_stage: pop.getBoundingClientRect().right <= document.getElementById("stage").getBoundingClientRect().right };
     pop.querySelector("[data-cls]").click();
     out.label_menu.click_sets = E.region(piece.id).cls === S.classes[0].id; out.label_menu.closes = !pop.classList.contains("open");
+    key("1"); out.label_menu.same_key_clears = E.region(piece.id).cls === undefined; key("1");
     key("x"); out.peek_on = S.peek === true; document.body.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true })); out.peek_off = S.peek === false;
     E.setTool("edit");
     // 12d. measure panel and the reshape bar
     const rm = S.regions.find((x) => x.source === "model" && x.paths.length === 1 && x.label != null);
     S.selected = rm.id; E.refresh(); await wait(300);
-    out.measure = { class_rows: document.querySelectorAll("#measBody .meas-t tr").length, selected_shown: !!document.querySelector("#measBody .meas-sel"),
+    out.measure = { class_rows: document.querySelectorAll("#measBody .meas-t tr").length, selected_tiles: document.querySelectorAll("#measBody .stat").length, slider_in_bar: !!document.querySelector("#shapeBar #slider") && !document.querySelector("#detail #slider"),
       bar_open: document.getElementById("shapeBar").classList.contains("open"), area_matches: Math.abs(E.measures(rm).area - area(rm)) < 0.02 * area(rm) };
     const a1 = area(rm); document.getElementById("sbDist").value = 10;
     await E.shapeOp("grow"); const a2 = area(E.region(rm.id)); await E.shapeOp("shrink"); const a3 = area(E.region(rm.id));
