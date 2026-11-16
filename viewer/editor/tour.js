@@ -239,13 +239,25 @@
         await move(t, { x: pos.x + 130, y: pos.y + 120 });
       } },
     { title: "Measure",
-      text: () => `Click the ruler, or press ${K("4")}. Click a region for its longest diameter, then another region for the gap between them. The <b>Measure</b> panel on the right gives areas, perimeters and the share of each class.`,
+      text: () => `Click the ruler, or press ${K("4")}. <b>Drag</b> for a straight distance. <b>Click a region</b> for its longest diameter, then <b>another region</b> for the gap between them. <b>Click two points</b> on an outline for the length along it. The <b>Measure</b> panel gives areas and the share of each class.`,
       async play(t) {
         await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1290, 470, 1920, 990)]);
         await clickEl(t, "#toolRuler", 500);
-        await click(t, inside("region-04"), 1400);
+        const clear = () => click(t, at(1830, 560), 600);
+        say("Drag: a straight distance", 2200);
+        await drag(t, at(1410, 560), at(1500, 640), 1.1, 1300);
+        await clear();
+        say("Click a region: its longest diameter", 2200);
+        await click(t, inside("region-04"), 1600);
+        await clear();
+        say("A region, then another: the gap between them", 2400);
+        await click(t, inside("region-04"), 800);
         await click(t, inside("region-02"), 1700);
-        S().selected = reg("region-04").id; $("measure").classList.remove("shut"); Ed().refresh();
+        await clear();
+        say("Two points on an outline: the length along it, both ways round", 3000);
+        await click(t, onLine("region-04", 1656, 552), 700);
+        await click(t, onLine("region-04", 1720, 714), 1900);
+        $("measure").classList.remove("shut"); Ed().refresh();
         $("measure").scrollIntoView({ block: "nearest" }); await wait(t, 60);
         await spot(t, [box("#measure", 2)]);
         const m = $("measure").getBoundingClientRect();
