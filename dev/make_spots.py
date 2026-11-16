@@ -196,7 +196,7 @@ def main():
         half = max(x1 - x0, y1 - y0) * 0.75
         p0, p1 = np.array([cx, cy]) - d * half, np.array([cx, cy]) + d * half
         ln = LineString([p0, p1])
-        xs_ = ln.intersection(M["outer"].boundary)
+        xs_ = ln.intersection(M["poly"].boundary)                 # holes included: the editor will not cut through one
         n = len(getattr(xs_, "geoms", [xs_])) if not xs_.is_empty else 0
         if n == 2 and outside_all(p0, 8) and outside_all(p1, 8) and not any(ln.intersects(regs[o]["poly"]) for o in regs if o != main):
             pieces = M["poly"].difference(ln.buffer(0.5))
@@ -211,9 +211,17 @@ def main():
     third = max((n for n in regs if n not in (main, second) and regs[n]["area"] / img_area > 0.003), key=lambda n: regs[n]["area"], default=second)
     T = regs[third]
     tring = LineString(np.vstack([T["ring"], T["ring"][:1]]))
-    ta, tmid, tb = bump(0.3, 0.07, 0.2, -1, tring, T["outer"])
-    tb_ = T["poly"].bounds
-    trim = {"region": third, "view": view((tb_[0] + tb_[2]) / 2, (tb_[1] + tb_[3]) / 2, max(tb_[2] - tb_[0], (tb_[3] - tb_[1]) * ASPECT) * 1.5, W, H),
+    span = min(0.07, 180 / tring.length)                          # a short stretch, even on a big region
+    best_t = None
+    for k in range(20):                                           # a stretch well inside the image, so the view is not clipped
+        ta, tmid, tb = bump(0.05 * k, span, 0.2, -1, tring, T["outer"])
+        mx, my = (ta[0] + tb[0]) / 2, (ta[1] + tb[1]) / 2
+        room = min(mx, my, W - mx, H - my)
+        if all(T["poly"].contains(Point(m)) for m in tmid) and (best_t is None or room > best_t[0]):
+            best_t = (room, ta, tmid, tb)
+    _, ta, tmid, tb = best_t
+    chord = np.hypot(tb[0] - ta[0], tb[1] - ta[1])
+    trim = {"region": third, "view": view((ta[0] + tb[0]) / 2, (ta[1] + tb[1]) / 2, max(420, chord * 3), W, H),
             "a": ta, "mid": tmid[1:], "b": tb}
 
     # hole: inside the largest region, where it is thickest
@@ -228,17 +236,8 @@ def main():
             "loop": [[round(hc[0] + hr * np.cos(t) * (1 + 0.18 * np.sin(2 * t)), 1), round(hc[1] + hr * 1.25 * np.sin(t), 1)] for t in np.linspace(0, 2 * np.pi, 9, endpoint=False)],
             "centre": [round(hc[0] + hr * 2.4), round(hc[1])] if B["poly"].contains(Point(hc[0] + hr * 2.4, hc[1]).buffer(30)) else [round(hc[0]), round(hc[1])]}
 
-    # the email GIF's second correction: an outward reroute on the second region
-    s2ring = LineString(np.vstack([S2["ring"], S2["ring"][:1]]))
-    best2 = None
-    for k in range(40):
-        u = k / 40
-        a2, m2, b2 = bump(u, 0.18, 0.25, 1, s2ring, S2["outer"])
-        if all(outside_all(m, 4) for m in m2):
-            cl = min(allp.distance(Point(m)) for m in m2)
-            if best2 is None or cl > best2[0]:
-                best2 = (cl, a2, m2, b2)
-    email = {"zoomAt": [round(cx), round(cy)], "second": {"a": best2[1], "mid": best2[2], "b": best2[3]} if best2 else {"a": extend["a"], "mid": extend["mid"], "b": extend["b"]}}
+    # the email GIF: zoom on the main region, extend it, then trim it
+    email = {"zoomAt": [round(cx), round(cy)], "region": main, "second": trim_main}   # both GIF corrections on one region, in view
 
     w0 = work[2] - work[0]
     spots = {

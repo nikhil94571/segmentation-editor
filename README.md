@@ -6,10 +6,12 @@
 
 A segmentation model is usually about right. This editor is for the last part: an expert opens the model's
 output, fixes the outlines that are off, draws what was missed, deletes what is wrong, and exports files that open
-in the tools the lab already uses. The corrected masks can also go straight back into training.
+in the tools the lab already uses. The corrections then go back into training: `ml/retrain.py` fine-tunes the model
+on them, and [a measured run of that loop](docs/retraining/README.md) shows the model improving round by round.
 
-> **Status: prototype.** Built and tested on public H&E images from Wikimedia Commons only. Not yet used by a
-> person on real lab data, and not yet run on a real Windows machine.
+> **Status: prototype.** The practice images are breast cancer tissue from the public BCSS dataset, with the output
+> of a model trained here on other BCSS regions. Not yet used by a person on real lab data, and not yet run on a
+> real Windows machine.
 
 **Try it now: https://segmentation-tool.fly.dev/editor** (a demo server: please do not upload confidential or patient images).
 
@@ -24,6 +26,7 @@ in the tools the lab already uses. The corrected masks can also go straight back
 | **Guides** | Regions are listed least-confident first, so the expert starts where the model was least sure · probability heatmap · the model's original outline as a dashed line |
 | **Exports** | ImageJ `.tif` with editable regions · ImageJ RoiSet `.zip` · QuPath GeoJSON · mask PNG · shaded PNG, for one image or a whole library |
 | **Teaches** | A first visit starts with a tour in which a pointer works the real editor step by step; the Tutorial button has a short clip for every tool |
+| **Retrains** | `ml/retrain.py` turns corrections saved in the editor into a fine-tuned model and scores it before and after on regions it never saw |
 
 ## Try it on your computer
 
@@ -38,7 +41,7 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 On Windows: `py -m venv .venv`, then `.venv\Scripts\pip install -r requirements.txt` and
 `.venv\Scripts\python serve.py`.
 
-It opens with six practice images and the tour. To use your own, click **Open** and drop in a folder or a `.zip`.
+It opens with six practice images (at 0.5 µm per pixel, so measurements are in µm) and the tour. To use your own, click **Open** and drop in a folder or a `.zip`.
 Files are paired by name: `slide1_image.png` with `slide1_prob.tif` or `slide1_mask.png`.
 
 ## Using the editor
@@ -58,6 +61,44 @@ Files are paired by name: `slide1_image.png` with `slide1_prob.tif` or `slide1_m
 
 Each region is a few nodes joined by curves (cubic Béziers fitted to the model's outline), so an outline is
 adjusted by moving a handful of points and not hundreds.
+
+## The model and retraining
+
+`ml/` holds the model behind the practice images and the retraining loop. It needs PyTorch, so it has its own
+environment; the editor's server does not use it.
+
+```bash
+uv venv .venv-ml --python 3.12 --python-preference only-managed      # a Python build that includes lzma
+uv pip install --python .venv-ml/bin/python -r ml/requirements.txt
+.venv-ml/bin/python ml/fetch_bcss.py          # BCSS masks and the 64 regions used (1.4 GB) into data/bcss/
+.venv-ml/bin/python ml/loop.py                # the measured correction -> retraining loop (about 2 hours on an M-series Mac)
+.venv-ml/bin/python ml/report.py              # docs/retraining/: chart and results page
+.venv-ml/bin/python ml/predict.py --practice  # rebuild data/practice-bcss/ from the first model
+```
+
+**Retraining from your own corrections.** Correct images in the editor (they are saved as you go), then:
+
+```bash
+.venv-ml/bin/python ml/retrain.py --library practice                  # every corrected image of a library
+.venv-ml/bin/python ml/retrain.py --pairs exported/ --mpp 0.5         # or <name>_image.* + <name>_mask.png pairs
+.venv-ml/bin/python ml/predict.py --model models/retrained-*.pt --mpp 0.5 new1.png new2.png   # its output, to open in the editor
+```
+
+Regions with no class or the class Tumour train as tumour; regions of a class set to "leave out of measurements"
+(such as Exclude, for folds or pen marks) are ignored; everything else is other tissue. The practice images are
+themselves held-out test regions, so `retrain.py` recognises them by their pixels and leaves any corrected one out
+of its before-and-after score. To try the whole path without correcting by hand,
+`ml/simulate_corrections.py --data <a throw-away DATA_DIR> 2 3` saves the BCSS expert outlines as the corrections
+of practice images 2 and 3.
+
+**The model:** a U-Net with an ImageNet-pretrained ResNet-34 encoder (segmentation_models_pytorch), at 1 µm per
+pixel, tumour (BCSS tumour, DCIS, angioinvasion) against all other tissue, trained on 8 regions for the practice
+images. Models are saved under `models/` (not in the repository).
+
+**The earlier practice images.** `PRACTICE_SET=simulated python serve.py` (on a fresh `DATA_DIR`) brings back the
+simulated outputs on Wikimedia images that the demo used until 17 Nov 2026; the tour and Tutorial positions for both
+sets are in `viewer/editor/demo-spots.js`. The whole earlier demo, clips included, is the git tag
+`v1-simulated-demo`.
 
 ## The command-line converter
 
@@ -135,7 +176,7 @@ Measured on 11 Nov 2026, on regions read back from the saved `.tif`:
 | Exact mode (`--tolerance 0`), 507 masks | **507 of 507 pixel-exact** |
 | ImageJ `.tif`, RoiSet and QuPath GeoJSON | identical masks |
 | Shading of any colour, with the original image (`tests_overlay.py`: ten colours, three opacities) | mean IoU **0.985** |
-| Editor self-test (`viewer/editor/selftest.js`, 51 results through the real page) | all pass, 16 Nov 2026 |
+| Editor self-test (`viewer/editor/selftest.js`, 56 results through the real page, on the simulated practice set) | all pass, 17 Nov 2026 |
 
 Known limits:
 
@@ -171,6 +212,9 @@ resized pictures, and needed thresholds tuned to these images.
 <details>
 <summary><b>Test data</b></summary>
 
+The practice images (`data/practice-bcss/`) come from BCSS; see "The model and retraining". What follows is the
+earlier, simulated test data, still used by the converter's checks and by `PRACTICE_SET=simulated`.
+
 - `prepare_tissue.py`: 11 breast H&E images from Wikimedia Commons, cropped to 2048 × 2048 (two exist only at
   1532 × 1532 and are not upscaled).
 - `make_cases.py`, per image: `expert.png` (ground truth); `prob.tif`, a float32 probability map shaped like a
@@ -195,12 +239,20 @@ resized pictures, and needed thresholds tuned to these images.
 | `viewer/editor.html`, `viewer/editor/app.js`, `geom.js` | The editor page, the canvas app, the geometry (no DOM) |
 | `viewer/editor/tour.js`, `tutorial.js`, `tutorial/` | The first-visit tour, the Tutorial panel, its clips |
 | `tutorial/` | The recorder that makes the clips from the real editor (`tutorial/README.md`) |
+| `ml/` | The model: data, training, the measured retraining loop, prediction, retraining from corrections |
+| `data/practice-bcss/` | The practice images, the first model's output on them, and the BCSS expert outlines |
+| `viewer/editor/demo-spots.js`, `dev/make_spots.py` | Where the tour and the Tutorial recorder act on practice-01 |
+| `dev/browser/` | Headless-Chrome scripts that run the self-test and the tour |
 | `deploy/`, `Dockerfile`, `fly.toml` | Hosting |
 | `tests_roundtrip.py`, `tests_overlay.py`, `verify_roiset.py` | Checks |
 
 </details>
 
 ## Data and licences
+
+`data/practice-bcss/` holds six regions of BCSS (Amgad et al., "Structured crowdsourcing enables convolutional
+segmentation of histology images", *Bioinformatics* 35(18):3461, 2019), released under CC0 1.0
+(https://github.com/PathologyDataScience/BCSS); `ml/fetch_bcss.py` downloads the rest of what `ml/` uses.
 
 `data/tissue_2k/` holds 11 H&E images from Wikimedia Commons, cropped to squares. Authors, source pages and
 licences (CC0, CC BY-SA 3.0, CC BY-SA 4.0) are listed in `data/tissue_2k/SOURCES.json`; the crops are shared under

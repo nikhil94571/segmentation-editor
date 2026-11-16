@@ -267,7 +267,7 @@ const scenes = {
     await R.click(await R.el('input[name=exFmt][value=roiset_zip]'), { after: 0.3 });
     await R.click(await R.el('input[name=exFmt][value=qupath_geojson]'), { after: 0.5 });
     await R.click(await R.el("#exGo"), { after: 0.1 });
-    for (let i = 0; i < 600 && !(await R.ev("!!document.getElementById('exDone')")); i++) await R.hold(0.1);
+    for (let i = 0; i < 600 && !(await R.ev("!!document.getElementById('exDone')")); i++) { await sleep(400); await R.hold(0.1); }   // the wait, sped up
     await R.hold(1.8);
     await R.click(await R.el("#exDone"), { after: 0.4 });
     await finish(0.8);
@@ -377,7 +377,7 @@ const scenes = {
     await R.click(await R.el("#toolDraw"), { after: 0.3, dur: 0.8 });
     const a = await onLine(D.main, ...D.extend.a), b = await onLine(D.main, ...D.extend.b);
     await stroke(hand([a].concat(await R.ats(D.extend.mid), [b]), { wobble: 0.7 }), { speed: 210, after: 0.7 });
-    const E2 = D.email.second, c = await onLine(D.second, ...E2.a), d = await onLine(D.second, ...E2.b);
+    const E2 = D.email.second, r2 = D.email.region || D.second, c = await onLine(r2, ...E2.a), d = await onLine(r2, ...E2.b);
     await stroke(hand([c].concat(await R.ats(E2.mid), [d]), { wobble: 0.6 }), { speed: 250, after: 0.5 });
     await R.move({ x: R.pos.x + 90, y: R.pos.y + 70 }); await R.hold(1.6);
     R.on = false;

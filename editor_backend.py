@@ -676,6 +676,17 @@ def _seed_practice():
     the earlier simulated outputs for images in data/tissue_2k/. Without either, every case of make_cases.py is used."""
     libs().mkdir(parents=True, exist_ok=True)
     marker = libs() / ".seeded"
+    old = libs() / "practice"
+    if marker.exists() and PRACTICE_SET != "simulated" and (old / "library.json").exists():
+        lib = json.loads((old / "library.json").read_text())
+        if not lib.get("set") and any(c["files"].get("image", "").startswith("tissue_2k/") for c in lib["cases"]):
+            # an earlier, simulated practice library: keep it, with any edits, under its own name; then seed the new one
+            new = libs() / "practice-simulated"
+            if not new.exists():
+                shutil.move(str(old), str(new))
+                lib.update(id="practice-simulated", name="Practice images (simulated)", set="simulated")
+                _write_lib(lib)
+                marker.unlink()
     if marker.exists():
         return
     marker.write_text("1")
@@ -686,7 +697,7 @@ def _seed_practice():
         for i, c in enumerate(man["cases"], 1):
             cases.append({"name": f"practice-{i:02d}", "route": "model", "sid": None,
                           "files": {"image": f"practice-bcss/{c['name']}_image.jpg", "model": f"practice-bcss/{c['name']}_prob.png"}})
-        extra = {"pixel_um": man.get("pixel_um")}
+        extra = {"pixel_um": man.get("pixel_um"), "set": "bcss"}
     elif (ROOT / "data" / "practice").is_dir():
         for i, src in enumerate(PRACTICE, 1):
             if (ROOT / "data" / "practice" / f"{src}_prob.png").exists():
@@ -884,7 +895,11 @@ def open_library_case(lid, index):
     if c.get("sid") and (_sdir(c["sid"]) / "meta.json").exists():
         return {"id": c["sid"]}
     root = _lib_root(lib)
-    sid = f"{_slug(lid)[:30]}-{index:04d}"
+    base = sid = f"{_slug(lid)[:30]}-{index:04d}"
+    k = 1
+    while _sdir(sid).exists():                                  # a session of another library (e.g. a renamed one): keep it
+        k += 1
+        sid = f"{base}-{k}"
     import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid)
     c["sid"] = sid
     _write_lib(lib)
