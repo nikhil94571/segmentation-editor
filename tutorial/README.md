@@ -24,5 +24,8 @@ EDITOR_URL=http://127.0.0.1:8767 node tutorial/make_tutorial.js practice email  
 The local export clip writes a real export to `scratch/tut-export` and leaves that as the remembered export
 folder in `settings.json`; delete that file afterwards to go back to Downloads.
 
-Each scene in `make_tutorial.js` is a short script: where to look, what to click or draw (in image coordinates of
-practice-01), and how long to pause. To add a step, add a scene there and an entry in `viewer/editor/tutorial.js`.
+Each scene in `make_tutorial.js` is a short script: where to look, what to click or draw, and how long to pause.
+The places on practice-01 come from `viewer/editor/demo-spots.js`, which has one set per practice set; the
+recorder uses `PRACTICE_SET` (default `bcss`), and the servers must run with the same `PRACTICE_SET`. For the BCSS
+set, `dev/make_spots.py --main region-05 --second region-06` works the places out from the image itself and
+`dev/show_spots.py out.jpg` draws them for a check by eye. To add a step, add a scene there and an entry in `viewer/editor/tutorial.js`.

@@ -5,7 +5,7 @@ the DevTools protocol. Start Chrome first, and a throw-away server with its own 
 never touched:
 
 ```bash
-DATA_DIR=$PWD/scratch/testdata PORT=8767 .venv/bin/python serve.py &
+PRACTICE_SET=simulated DATA_DIR=$PWD/scratch/testdata PORT=8767 .venv/bin/python serve.py &
 "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --remote-debugging-port=9334 \
   --user-data-dir=$PWD/scratch/chrome-test --window-size=1400,900 about:blank &
 mkdir -p scratch/export-test          # the self-test exports here
@@ -19,4 +19,6 @@ mkdir -p scratch/export-test          # the self-test exports here
 | `eval.js '<js>'` | Runs JavaScript in the open page and prints the result |
 | `hosted-check.js` | Calls the hosted server's API as a visitor (classes, pixel size, CSV, reshape); edit the address at the top |
 
-The self-test leaves `settings.json` pointing at `scratch/export-test`; reset it to your Downloads folder afterwards.
+The self-test draws and cuts at fixed places on the simulated practice-01, so run its server with
+`PRACTICE_SET=simulated` (on its own `DATA_DIR`). The tour runs on either set. The self-test leaves `settings.json`
+pointing at `scratch/export-test`; reset it to your Downloads folder afterwards.
