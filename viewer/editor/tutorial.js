@@ -23,7 +23,7 @@
         text: `Click a region on the image, or click its name in the list. Orange nodes appear on its outline: that is the region you are working on. Press ${k("N")} to step to the next region. The list starts with the regions the model was least sure about.`,
         clips: [["03-select", 1042, 650]] },
     ] },
-    { title: "Adjust an outline", note: `The Edit tool (the arrow, or press ${k("V")}). Select a region first.`, steps: [
+    { title: "Adjust an outline", note: `The Edit tool (the arrow, or press ${k("1")}). Select a region first.`, steps: [
       { id: "node", nav: "Move a node", title: "Move a node",
         text: `Drag an orange node to move that part of the outline.`, clips: [["04-node", 800, 500]] },
       { id: "bend", nav: "Bend the line", title: "Bend the line",
@@ -33,9 +33,9 @@
       { id: "move", nav: "Move a whole region", title: "Move a whole region",
         text: `Drag from inside the region to slide all of it.`, clips: [["07-move-region", 800, 500]] },
     ] },
-    { title: "Draw", note: `The Draw tool (the pencil, or press ${k("P")}).`, steps: [
+    { title: "Draw", note: `The Draw tool (the pencil, or press ${k("2")}).`, steps: [
       { id: "draw", nav: "Draw a new region", title: "Draw a new region",
-        text: `Click the pencil or press ${k("P")}. Press, draw around the area, and finish where you started. The shape fills in when the loop closes.`, clips: [["08-draw", 800, 500]] },
+        text: `Click the pencil or press ${k("2")}. Press, draw around the area, and finish where you started. The shape fills in when the loop closes.`, clips: [["08-draw", 800, 500]] },
       { id: "parts", nav: "Draw in several strokes", title: "Draw in several strokes",
         text: `You can let go part-way. Press the <b>orange end</b> to carry on, and finish on the <b>first node</b> to close the shape.`,
         tip: `${k("Enter")} closes the shape from wherever you are. ${k("Esc")} cancels it.`, clips: [["09-draw-in-parts", 800, 500]] },
@@ -51,7 +51,7 @@
       { id: "hole", nav: "Cut a hole", title: "Cut a hole",
         text: `Draw a closed shape <b>inside</b> a region. It becomes a hole.`, clips: [["13-cut-hole", 800, 500]] },
       { id: "unhole", nav: "Remove a hole", title: "Remove a hole",
-        text: `Switch to the Edit tool (${k("V")}). Click inside the hole so it turns orange, then press ${k("Delete")}. Only the hole goes; the region stays.`, clips: [["14-remove-hole", 800, 500]] },
+        text: `Switch to the Edit tool (${k("1")}). Click inside the hole so it turns orange, then press ${k("Delete")}. Only the hole goes; the region stays.`, clips: [["14-remove-hole", 800, 500]] },
     ] },
     { title: "Whole-region tools", note: "Quicker than redrawing when the model was nearly right, or completely wrong.", steps: [
       { id: "slider", nav: "Grow or shrink", title: "Grow or shrink a region",
@@ -72,18 +72,18 @@
     ] },
     { title: "Label and measure", note: "Say what each region is, and read off its size.", steps: [
       { id: "label", nav: "Label a region", title: "Say what a region is",
-        text: `Click the tag or press ${k("L")}, then click a region and pick its class. A coloured dot marks it. The same menu marks a region as <b>Unsure</b> and holds a note. Click the class again to take it off.`,
-        tip: `With a region selected, ${k("1")} to ${k("9")} set its class in any tool. <b>Edit classes</b> changes the list for the library; a class set to be left out of measurements gets a dashed outline.`, clips: [["25-label", 800, 500]] },
+        text: `Click the tag or press ${k("3")}, then click a region and pick its class, or press its number while the menu is open. A coloured dot marks it. The same menu marks a region as <b>Unsure</b> and holds a note. Click the class again to take it off.`,
+        tip: `Double-click a region's name in the list to rename it. <b>Edit classes</b> changes the list for the library; a class set to be left out of measurements gets a dashed outline.`, clips: [["25-label", 800, 500]] },
       { id: "ruler", nav: "Measure with the ruler", title: "Measure with the ruler",
-        text: `Click the ruler or press ${k("R")}. <b>Click a region</b> for its longest diameter, then <b>another region</b> for the smallest gap between them. <b>Click two points on one outline</b> for the length along it, both ways round. <b>Drag</b> for a straight distance.`,
-        tip: `${k("Esc")} clears the measurement.`, clips: [["26-ruler", 800, 500]] },
+        text: `Click the ruler or press ${k("4")}. <b>Drag</b> for a straight distance. <b>Click a region</b> for its longest diameter, then <b>another region</b> for the smallest gap between them. <b>Click two points on one outline</b> for the length along it, both ways round.`,
+        tip: `Click empty space, or press ${k("Esc")}, to clear a measurement. Measuring one region also shows it in the Measure panel.`, clips: [["26-ruler", 800, 500]] },
       { id: "measure", nav: "The Measure panel", title: "The Measure panel",
-        text: `<b>Measure</b>, on the right, shows the selected region's area, perimeter, longest diameter and circularity, and the area and share of each class. Type the <b>pixel size</b> to read everything in µm. <b>Download measurements</b> saves one table for the whole library.`,
+        text: `<b>Measure</b>, on the right, shows the selected region's area, perimeter, longest diameter and circularity. The table gives each class's area, its share of all the regions and its share of the image, with a total. Type the <b>pixel size</b> to read everything in µm. <b>Download CSV</b> saves one table for the whole library.`,
         tip: `Hold ${k("X")} to hide the regions and see the bare tissue.`, clips: [["27-measure", 800, 500]] },
     ] },
     { title: "Finish", note: "Your work is saved by itself as you go.", steps: [
       { id: "done", nav: "Done, next image", title: "Mark done and go to the next image",
-        text: `Click <b>Done</b> (${k("D")}) when an image is finished. The arrows at the top left (or ${k("[")} and ${k("]")}) go to the previous and next image.`, clips: [["19-done-next", 1280, 760]] },
+        text: `Click <b>Done</b> (${k("D")}) when an image is finished. The arrows at the top left (or ${k("←")} and ${k("→")}) go to the previous and next image.`, clips: [["19-done-next", 1280, 760]] },
       { id: "export", nav: "Export", title: "Export",
         text: hosted
           ? `Click <b>Export</b>. Choose this image or all of them, and tick the file types you want (ImageJ, QuPath, plain masks). They download as one .zip.`

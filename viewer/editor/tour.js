@@ -197,7 +197,7 @@
         await move(t, at(1700, 760), 0.9);
       } },
     { title: "Extend or trim a region",
-      text: () => `Click the pencil, or press ${K("P")}. Start <b>on the outline</b> (an orange dot shows where), draw the new edge, and end back <b>on the same outline</b>. That stretch of the outline is replaced by your line.`,
+      text: () => `Click the pencil, or press ${K("2")}. Start <b>on the outline</b> (an orange dot shows where), draw the new edge, and end back <b>on the same outline</b>. That stretch of the outline is replaced by your line.`,
       async play(t) {
         await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
         await clickEl(t, "#toolDraw", 500);
@@ -216,7 +216,7 @@
         await move(t, { x: pos.x - 110, y: pos.y + 90 });
       } },
     { title: "Adjust the outline",
-      text: () => `Click the arrow, or press ${K("V")}, and select a region. <b>Drag a node</b> to move that part of the outline, then <b>drag the line</b> between nodes to bend it into shape.`,
+      text: () => `Click the arrow, or press ${K("1")}, and select a region. <b>Drag a node</b> to move that part of the outline, then <b>drag the line</b> between nodes to bend it into shape.`,
       async play(t) {
         Ed().setTool("draw");                                  // as the step before left it
         await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
@@ -230,7 +230,7 @@
         await move(t, { x: pos.x - 70, y: pos.y + 80 });
       } },
     { title: "Say what a region is",
-      text: () => `Click the tag, or press ${K("L")}, then click a region and pick its class. A coloured dot marks it. With a region selected, the keys ${K("1")} to ${K("9")} do the same in any tool.`,
+      text: () => `Click the tag, or press ${K("3")}, then click a region and pick its class from the menu, or press its number. A coloured dot marks the region.`,
       async play(t) {
         await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
         await clickEl(t, "#toolLabel", 500);
@@ -239,7 +239,7 @@
         await move(t, { x: pos.x + 130, y: pos.y + 120 });
       } },
     { title: "Measure",
-      text: () => `Click the ruler, or press ${K("R")}. Click a region for its longest diameter, then another region for the gap between them. The <b>Measure</b> panel on the right gives areas, perimeters and the share of each class.`,
+      text: () => `Click the ruler, or press ${K("4")}. Click a region for its longest diameter, then another region for the gap between them. The <b>Measure</b> panel on the right gives areas, perimeters and the share of each class.`,
       async play(t) {
         await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1290, 470, 1920, 990)]);
         await clickEl(t, "#toolRuler", 500);
@@ -350,6 +350,7 @@
     const strip = (r) => { const o = Object.assign({}, r); delete o._p; return o; };
     before = cameFrom ? null : { regions: JSON.stringify(s.regions.map(strip)), counter: s.counter, undo: s.undo, redo: s.redo, selected: s.selected, tool: s.tool, view: Object.assign({}, s.view), fitted: s.fitted };
     document.querySelectorAll(".backdrop.show").forEach((m) => m.classList.remove("show"));
+    document.querySelectorAll(".side .sec.shut").forEach((x) => x.classList.remove("shut"));   // the tour points at all three sections
     s.demo = true; active = true; holes = [];
     const b = $("stage").getBoundingClientRect(); pos = { x: b.left + b.width * 0.3, y: b.top + b.height * 0.55 };
     paint([]); root.classList.add("on");

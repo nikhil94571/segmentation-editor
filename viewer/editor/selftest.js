@@ -137,8 +137,9 @@
     stroke(half); out.slice_starting_inside_one = { regions_added: S.regions.length - n2, draft_left: !!S.draft }; E.undo();
     // 12c. label: a number key gives the selected region a class, U marks it unsure, the menu opens on a click
     const piece = S.regions.find((x) => x.name === tgt.name + "a");
-    S.selected = piece.id; E.refresh(); key("2"); key("u");
-    out.label_keys = { cls: piece.cls, expected: S.classes[1].id, unsure: piece.unsure === true, dot_in_list: !!document.querySelector(".q-item.on .q-dot") };
+    S.selected = piece.id; E.refresh(); key("2"); const toolKey = S.tool; key("1");      // without the menu, 1 to 4 pick the tool
+    E.setTool("label"); E.openLabel(piece); key("2"); key("u");                            // with the menu open, a number picks the class
+    out.label_keys = { number_without_menu_picks_tool: toolKey, menu_closed_after_key: !document.getElementById("labelPop").classList.contains("open"), cls: piece.cls, expected: S.classes[1].id, unsure: piece.unsure === true, dot_in_list: !!document.querySelector(".q-item.on .q-dot") };
     E.setTool("label");
     const bbP = G.bbox(piece.paths), mid = { x: (bbP.x0 + bbP.x1) / 2, y: (bbP.y0 + bbP.y1) / 2 };
     ev("pointerdown", mid); ev("pointerup", mid); await wait(350);
@@ -146,7 +147,8 @@
     out.label_menu = { open: pop.classList.contains("open"), rows: pop.querySelectorAll("[data-cls]").length, inside_stage: pop.getBoundingClientRect().right <= document.getElementById("stage").getBoundingClientRect().right };
     pop.querySelector("[data-cls]").click();
     out.label_menu.click_sets = E.region(piece.id).cls === S.classes[0].id; out.label_menu.closes = !pop.classList.contains("open");
-    key("1"); out.label_menu.same_key_clears = E.region(piece.id).cls === undefined; key("1");
+    E.openLabel(E.region(piece.id)); key("1"); out.label_menu.same_key_clears = E.region(piece.id).cls === undefined;
+    E.openLabel(E.region(piece.id)); key("1");
     key("x"); out.peek_on = S.peek === true; document.body.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true })); out.peek_off = S.peek === false;
     E.setTool("edit");
     // 12d. measure panel and the reshape bar
@@ -178,10 +180,29 @@
     const rr = S.regions.find((x) => x.source === "model" && x.paths.length === 1), pth = rr.paths[0];
     tap(G.bez(G.cubic(pth, 0), 0.5)); const k1 = S.ruler && S.ruler.kind;
     tap(G.bez(G.cubic(pth, Math.floor(pth.segs.length / 2)), 0.5));
+    out.ruler_selects = S.selected === rr.id;
     out.ruler_outline = { first_click: k1, then: S.ruler && S.ruler.kind, both_ways_sum: S.ruler && Math.round(S.ruler.len1 + S.ruler.len2), perimeter: Math.round(E.measures(rr).perim) };
     const two = S.regions.filter((x) => x.source === "model").slice(0, 2);
     key("Escape"); tap(E.labelPoint(two[0])); const k2 = S.ruler && S.ruler.kind; tap(E.labelPoint(two[1]));
-    out.ruler_regions = { first_click: k2, then: S.ruler && S.ruler.kind, gap_px: S.ruler && S.ruler.a ? Math.round(G.dist(S.ruler.a, S.ruler.b)) : null };
+    out.ruler_regions = { first_click: k2, gap_deselects: S.selected === null, then: S.ruler && S.ruler.kind, gap_px: S.ruler && S.ruler.a ? Math.round(G.dist(S.ruler.a, S.ruler.b)) : null };
+    {                                                          // two points on a boundary that two pieces share still give the outline length
+      E.setTool("draw"); const cut = []; for (let x = 1480; x <= 1770; x += 9) cut.push({ x, y: 600 });
+      S.view = { s: 2, x: 500 - 1625 * 2, y: 350 - 600 * 2 }; stroke(cut);
+      const pcs = S.regions.filter((x) => x.name === "region-04a" || x.name === "region-04b");
+      const edge = (x) => { const a = pcs[0] && G.nearest(pcs[0].paths[0], { x, y: 600 }); return a ? a.point : { x, y: 600 }; };
+      E.setTool("ruler"); tap(edge(1580)); const first = S.ruler && S.ruler.kind; tap(edge(1680));
+      out.ruler_on_shared_edge = { pieces: pcs.length, first_click: first, then: S.ruler && S.ruler.kind, shorter_way: S.ruler && S.ruler.len1 != null ? Math.round(Math.min(S.ruler.len1, S.ruler.len2)) : null };
+      E.undo();
+    }
+    // rename: double-click a name in the list
+    {
+      E.setTool("edit"); const nm = document.querySelector("#queue .q-item .q-name"), rid = nm.closest(".q-item").dataset.id;
+      nm.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); nm.textContent = "gland A"; nm.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      out.rename = { name: E.region(rid).name, in_list: [...document.querySelectorAll("#queue .q-name")].some((x) => x.textContent === "gland A") };
+      E.undo();
+    }
+    out.fold = (() => { const b = document.querySelector('[data-fold="regions"]'); b.click(); const shut = document.getElementById("secRegions").classList.contains("shut"); b.click(); return { shuts: shut, opens_again: !document.getElementById("secRegions").classList.contains("shut") }; })();
+    out.measure_table = { columns: [...document.querySelectorAll("#measBody .meas-t th")].map((x) => x.textContent).join("|"), has_total: !!document.querySelector("#measBody .meas-t tr.tot") };
     E.fitView();
     E.setTool("edit");
     // 13. export

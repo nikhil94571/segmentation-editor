@@ -45,16 +45,16 @@ Files are paired by name: `slide1_image.png` with `slide1_prob.tif` or `slide1_m
 
 | Tool | What it does |
 |---|---|
-| **Edit** (`V`) | Drag a node to move it, drag the line to bend it, drag inside a region to move all of it. Double-click the line to add a node, a node to remove it. `Delete` removes the region. Clicking inside a hole selects just the hole. |
-| **Draw** (`P`) | Press, drag, release. Finish where you started to close the shape. Drawn **inside** a region, the shape becomes a hole. A stroke that starts and ends **on an outline** replaces that stretch (extend or trim). A line drawn **right across** a region splits it in two; the pieces share the cut, so editing it changes both. Drag back along your line to un-draw. |
-| **Label** (`L`) | Click a region for a menu of classes beside it. Keys `1` to `9` set the class of the selected region in any tool; `U` marks it unsure. "Edit classes" changes the list for the library. |
-| **Ruler** (`R`) | Click a region for its longest diameter, then another region for the smallest gap between them. Click two points on one outline for the length along it, both ways round. Drag for a straight distance. |
+| **Select and edit** (`1`) | Drag a node to move it, drag the line to bend it, drag inside a region to move all of it. Double-click the line to add a node, a node to remove it. `Delete` removes the region. Clicking inside a hole selects just the hole. |
+| **Draw** (`2`) | Press, drag, release. Finish where you started to close the shape. Drawn **inside** a region, the shape becomes a hole. A stroke that starts and ends **on an outline** replaces that stretch (extend or trim). A line drawn **right across** a region splits it in two; the pieces share the cut, so editing it changes both. Drag back along your line to un-draw. |
+| **Label** (`3`) | Click a region for a menu of classes beside it; with the menu open, `1` to `9` pick the class. `U` marks the selected region unsure. "Edit classes" changes the list for the library. |
+| **Measure** (`4`) | Click a region for its longest diameter, then another region for the smallest gap between them. Click two points on one outline for the length along it, both ways round. Drag for a straight distance. |
 | **Reshape bar** | Appears under the image when a region is selected with the Edit tool: Merge and Subtract (then click the other region), Fill holes, Smooth, Grow, Shrink or Band by a typed distance, and the grow / shrink slider. |
-| **Measure** | A collapsible panel: the pixel size, the selected region's measurements, and totals per class. |
+| **Measure panel** | The selected region's measurements, then each class's area with its share of the regions and of the image, a total, the pixel size and the CSV download. Measuring one region with the ruler shows it here too. |
 | **Grow / shrink slider** | In the reshape bar. Re-cuts the selected region from the model's probability map, so the edge moves most where the model was unsure. Without a probability map it moves the edge evenly. Off for regions that were drawn, split or merged. |
-| **Region list** | Least-confident first; `N` steps through it. Done, Delete, Previous and Next sit under it. |
+| **Region list** | Least-confident first; `N` steps through it. Double-click a name to rename the region. Done, Delete, Previous and Next sit at the bottom. |
 | **Display** | Fill opacity, the model's original outline (`M`), probability heatmap (`H`). Hold `X` to hide the regions and see the bare tissue. |
-| **Images** | `[` and `]` go to the previous and next image; `D` marks an image done. Work is saved as you go. |
+| **Images** | `←` and `→` go to the previous and next image; `D` marks an image done. Work is saved as you go. |
 
 Each region is a few nodes joined by curves (cubic Béziers fitted to the model's outline), so an outline is
 adjusted by moving a handful of points and not hundreds.

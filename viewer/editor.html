@@ -492,6 +492,36 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .side-foot { display: grid; grid-template-columns: 1.15fr 1fr 1.2fr 1fr; gap: 6px; padding: 12px 12px 14px; border-top: 1px solid var(--line); }
 .side-foot .btn { width: auto; min-width: 0; justify-content: center; padding: 9px 2px; gap: 5px; font-size: var(--fs-small); }
 .side-foot .done-btn svg { width: 14px; height: 14px; flex: none; }
+
+/* ---- fifth pass: one typeface, folding sections, one Measure table ---- */
+:root { --font-mono: var(--font-ui); }
+.side, .topbar, .shape-bar, .pop, .modal { font-variant-numeric: tabular-nums; }
+.side .fold { position: relative; width: 100%; display: flex; justify-content: center; align-items: center; }
+.side .fold .chev { position: absolute; right: 0; top: 50%; margin-top: -7px; width: 15px; height: 15px; fill: none; stroke: var(--ink-mute); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
+.side .sec.shut .fold { margin-bottom: 0; }
+.side .sec.shut .fold .chev { transform: rotate(-90deg); }
+.side .sec.shut > .sec-b { display: none; }
+.side .sec-regions { padding: 22px 8px 12px; }
+.side .sec-regions .fold { width: calc(100% - 20px); margin-left: 10px; margin-right: 10px; }
+.side .sec-regions .q-colhead { padding-right: 12px; }
+.side .sec-regions .queue { padding: 0 0 2px; max-height: 208px; }
+.side .measure .sec-h { margin-bottom: 0; }
+.q-name { font-size: var(--fs-small); }
+.q-name[contenteditable="true"] { outline: none; cursor: text; text-overflow: clip; box-shadow: 0 1.5px 0 var(--accent); }
+.meas-t th { font-size: var(--fs-micro); font-weight: 600; text-transform: uppercase; letter-spacing: .07em; color: var(--ink-mute); text-align: right; padding: 0 0 9px 8px; white-space: nowrap; }
+.meas-t th:first-child { text-align: left; padding-left: 0; }
+.meas-t td:nth-child(n+2) { padding-left: 8px; white-space: nowrap; }
+.meas-t td:nth-child(3) { width: auto; font-weight: 500; }
+.meas-t td:nth-child(n+3) { width: 46px; }
+.meas-t tbody tr:first-child td { border-top: none; padding-top: 2px; }
+.meas-t tr.tot td { border-top: 1px solid var(--line); font-weight: 600; }
+.meas-foot { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.meas-foot .btn { justify-content: center; padding: 9px 6px; min-width: 0; white-space: nowrap; }
+.px-box { display: flex; align-items: center; gap: 6px; min-width: 0; padding: 0 10px; border: 1px solid var(--line); border-radius: var(--r-ctl); background: var(--panel-2); box-shadow: var(--shadow-sm); cursor: text; }
+.px-box:focus-within { border-color: var(--accent-line); }
+.px-box input { flex: 1; min-width: 0; width: auto; border: none; outline: none; background: none; padding: 9px 0; text-align: left; font-size: var(--fs-small); font-weight: 500; color: var(--ink); }
+.px-box input::placeholder { color: var(--ink-mute); font-weight: 500; }
+.px-box span { flex: none; font-size: var(--fs-label); color: var(--ink-mute); }
 </style>
 </head>
 <body>
@@ -522,10 +552,10 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
   </header>
 
   <nav class="rail">
-    <button class="tool on" id="toolEdit" title="Edit: move nodes, bend lines (V)"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg><kbd>V</kbd></button>
-    <button class="tool" id="toolDraw" title="Draw: new regions, reroute outlines (P)"><svg viewBox="0 0 24 24"><path d="M4 20l1-5L16 4l4 4L9 19z"/><path d="M14 6l4 4"/></svg><kbd>P</kbd></button>
-    <button class="tool" id="toolLabel" title="Label: say what a region is (L)"><svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.2"/></svg><kbd>L</kbd></button>
-    <button class="tool" id="toolRuler" title="Ruler: distances, lengths along an outline, gaps between regions (R)"><svg viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21z"/><path d="M7.5 12.5l2 2M10.5 9.5l2 2M13.5 6.5l2 2"/></svg><kbd>R</kbd></button>
+    <button class="tool on" id="toolEdit" title="Select and edit: move nodes, bend lines (1)"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg><kbd>1</kbd></button>
+    <button class="tool" id="toolDraw" title="Draw: new regions, reroute outlines, split (2)"><svg viewBox="0 0 24 24"><path d="M4 20l1-5L16 4l4 4L9 19z"/><path d="M14 6l4 4"/></svg><kbd>2</kbd></button>
+    <button class="tool" id="toolLabel" title="Label: say what a region is (3)"><svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.2"/></svg><kbd>3</kbd></button>
+    <button class="tool" id="toolRuler" title="Ruler: distances, lengths along an outline, gaps between regions (4)"><svg viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21z"/><path d="M7.5 12.5l2 2M10.5 9.5l2 2M13.5 6.5l2 2"/></svg><kbd>4</kbd></button>
   </nav>
 
   <main class="stage" id="stage">
@@ -560,20 +590,24 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 
   <aside class="side">
     <div class="side-scroll">
-    <div class="sec">
-      <div class="sec-h">Display</div>
-      <div class="row"><label for="opacity">Fill opacity</label><input type="range" id="opacity" min="0" max="0.8" step="0.05" value="0.4"></div>
-      <div class="row"><label class="check"><input type="checkbox" id="showModel"> Model's original outline <kbd>M</kbd></label></div>
-      <div class="row"><label class="check" id="heatRow"><input type="checkbox" id="showHeat"> Probability heatmap <kbd>H</kbd></label></div>
+    <div class="sec" id="secDisplay">
+      <button class="sec-h fold" data-fold="display" type="button"><span>Display</span><svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="sec-b">
+        <div class="row"><label for="opacity">Fill opacity</label><input type="range" id="opacity" min="0" max="0.8" step="0.05" value="0.4"></div>
+        <div class="row"><label class="check"><input type="checkbox" id="showModel"> Model's original outline <kbd>M</kbd></label></div>
+        <div class="row"><label class="check" id="heatRow"><input type="checkbox" id="showHeat"> Probability heatmap <kbd>H</kbd></label></div>
+      </div>
     </div>
-    <div class="sec sec-regions">
-      <div class="sec-h">Regions<span id="progress" hidden></span></div>
-      <div class="q-colhead" id="confHead" hidden></div>
+    <div class="sec sec-regions" id="secRegions">
+      <button class="sec-h fold" data-fold="regions" type="button"><span>Regions</span><svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button><span id="progress" hidden></span>
+      <div class="sec-b">
+        <div class="q-colhead" id="confHead" hidden></div>
+        <div class="queue" id="queue"></div>
+      </div>
     </div>
-    <div class="queue" id="queue"></div>
     <div class="sec measure" id="measure">
-      <button class="sec-h meas-h" id="measToggle" type="button"><span>Measure</span><svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
-      <div class="meas-b" id="measBody"></div>
+      <button class="sec-h fold" data-fold="measure" type="button"><span>Measure</span><svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="sec-b meas-b" id="measBody"></div>
     </div>
     </div>
     <div class="side-foot">
@@ -647,10 +681,11 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 <div class="backdrop" id="keysModal"><div class="modal" style="width:480px">
   <div class="modal-h"><h3>Shortcuts</h3><button class="icon-btn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
   <div class="modal-b"><div class="keys">
-    <span><kbd>V</kbd> <kbd>P</kbd> <kbd>L</kbd> <kbd>R</kbd></span><span>Edit tool, Draw tool, Label tool, Ruler</span>
-    <span><kbd>1</kbd>–<kbd>9</kbd> <kbd>U</kbd></span><span>Give the selected region a class, mark it unsure</span>
+    <span><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></span><span>Select and edit, Draw, Label, Measure</span>
+    <span><kbd>1</kbd>–<kbd>9</kbd></span><span>With the label menu open: pick the class</span>
+    <span><kbd>U</kbd></span><span>Mark the selected region unsure</span>
     <span>Hold <kbd>X</kbd></span><span>Hide the regions to see the bare tissue</span>
-    <span><kbd>[</kbd> <kbd>]</kbd></span><span>Previous, next image in the library</span>
+    <span><kbd>←</kbd> <kbd>→</kbd></span><span>Previous, next image in the library</span>
     <span><kbd>D</kbd></span><span>Mark the image done, or not done</span>
     <span><kbd>N</kbd> <kbd>⇧N</kbd></span><span>Next, previous region (least confident first)</span>
     <span><kbd>Del</kbd></span><span>Remove the selected region. While drawing: remove the last node</span>

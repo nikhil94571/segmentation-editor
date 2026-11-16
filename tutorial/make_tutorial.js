@@ -337,14 +337,20 @@ const scenes = {
     await R.move({ x: R.pos.x - 200, y: R.pos.y + 150 }); await finish();
   },
 
-  /* 26. Ruler: longest diameter, the gap between two regions, the length along an outline */
+  /* 26. Ruler: a straight distance, a region's longest diameter, the gap between two regions, the length along an outline */
   async ruler() {
     await R.load(SLIDE); await view(1290, 470, 1920, 990, CBOX);
     await start("26-ruler", CANVAS, { x: 260, y: 430 });
     await R.click(await R.el("#toolRuler"), { after: 0.5 });
-    await R.click(await inside("region-04"), { after: 1.5 });
-    await R.click(await inside("region-02"), { after: 1.9 });
-    await R.click(await onLine("region-04", 1656, 552), { after: 0.7 });
+    const empty = async () => R.click(await R.at(1830, 560), { after: 0.6 });
+    await R.drag(await R.at(1410, 560), await R.at(1500, 640), { dur: 1.1, after: 1.3 });        // drag: a straight distance
+    await empty();
+    await R.click(await inside("region-04"), { after: 1.6 });                                   // one region: its longest diameter
+    await empty();
+    await R.click(await inside("region-04"), { after: 0.8 });                                   // a region, then another: the gap
+    await R.click(await inside("region-02"), { after: 1.8 });
+    await empty();
+    await R.click(await onLine("region-04", 1656, 552), { after: 0.7 });                        // two points on one outline: its length
     await R.click(await onLine("region-04", 1720, 714), { after: 1.9 });
     await R.move({ x: R.pos.x - 220, y: R.pos.y + 60 }); await finish();
   },
@@ -355,7 +361,9 @@ const scenes = {
     await R.ev(`(()=>{const S=__editor.S,c=["tumour","tumour","stroma","tumour","exclude"];S.regions.forEach((r,i)=>{if(c[i])r.cls=c[i];});__editor.refresh();})()`);
     await start("27-measure", LOW, { x: 600, y: 600 });
     await R.click(await R.at(1640, 600), { after: 0.6 });
-    await R.ev("document.querySelector('.side-scroll').scrollTop=9999"); await R.hold(1.6);
+    const maxScroll = await R.ev("(()=>{const e=document.querySelector('.side-scroll');return e.scrollHeight-e.clientHeight})()");
+    for (let i = 1; i <= 36; i++) { const t = i / 36, e = t * t * t * (10 - 15 * t + 6 * t * t); await R.ev(`document.querySelector('.side-scroll').scrollTop=${(maxScroll * e).toFixed(1)}`); await R.frame(); }
+    await R.hold(1.3);
     const px = await R.el("#pxUm"); await R.click(px, { after: 0.4 });
     await R.ev(`(()=>{const i=document.getElementById('pxUm');i.value='0.5';i.dispatchEvent(new Event('change'));})()`); await R.hold(1.8);
     await R.move({ x: px.x - 70, y: px.y - 170 }); await finish();

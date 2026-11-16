@@ -208,17 +208,32 @@
   const thin = (pts, max) => { const k = Math.max(1, Math.ceil(pts.length / max)); return pts.filter((_, i) => i % k === 0); };
   /* A click with the ruler. On an outline: a pin; a second pin on the same outline measures the outline between
      them, both ways round. Inside a region: its longest diameter; then inside another region: the gap between them. */
+  const pick = (r) => { S.selected = r ? r.id : null; S.hole = null; refresh(); };   // the Measure panel follows the ruler
   function rulerClick(p, prev) {
     const h = hitBorder(p), r = hitRegion(p, true);
     if (h && !(r && h.dist * S.view.s > 5)) {
-      const pin = { kind: "pin", rid: h.r.id, pi: h.pi, seg: h.seg, t: h.t, point: h.point };
-      if (prev && prev.kind === "pin" && prev.rid === pin.rid && prev.pi === pin.pi) S.ruler = arcBetween(h.r.paths[h.pi], prev, pin);
-      else if (prev && prev.kind === "pin") S.ruler = { kind: "line", a: prev.point, b: pin.point };
-      else S.ruler = pin;
-      return;
+      if (prev && prev.kind === "pin") {
+        const hit = sharedPath(prev, p);                       // any outline that runs through both points
+        if (hit) { S.ruler = arcBetween(hit.r.paths[hit.pi], hit.a, hit.b); pick(hit.r); return; }
+        S.ruler = { kind: "line", a: prev.point, b: h.point }; pick(region(prev.rid)); return;
+      }
+      S.ruler = { kind: "pin", rid: h.r.id, pi: h.pi, seg: h.seg, t: h.t, point: h.point }; pick(h.r); return;
     }
-    if (!r) { S.ruler = null; return; }
-    S.ruler = prev && prev.kind === "region" && prev.rid !== r.id && region(prev.rid) ? gapBetween(region(prev.rid), r) : longestAcross(r);
+    if (!r) { S.ruler = null; pick(null); return; }
+    if (prev && prev.kind === "region" && prev.rid !== r.id && region(prev.rid)) { S.ruler = gapBetween(region(prev.rid), r); pick(null); }
+    else { S.ruler = longestAcross(r); pick(r); }
+  }
+  /* Neighbouring pieces share parts of their outlines, so the two points may have been picked on different regions:
+     look for one outline that passes through both, preferring the region of the first point. */
+  function sharedPath(prev, q2) {
+    let best = null;
+    for (const r of S.regions) r.paths.forEach((path, pi) => {
+      const a = G.nearest(path, prev.point), b = G.nearest(path, q2);
+      if (!a || !b || a.dist > 0.6 || b.dist * S.view.s > HIT) return;
+      const score = b.dist - (r.id === prev.rid ? 1e6 : 0);
+      if (!best || score < best.score) best = { r, pi, score, a: { seg: a.seg, t: a.t, point: a.point }, b: { seg: b.seg, t: b.t, point: b.point } };
+    });
+    return best;
   }
   function arcBetween(path, a, b) {
     const fl = G.flatten(path, 1.5), u = (q) => q.seg + q.t, ua = u(a), ub = u(b);
@@ -398,6 +413,7 @@
     if (S.ruling) {                                            // a drag is a straight distance; a press without a drag is a click
       S.ruling = false;
       if (Math.hypot(e.clientX - S.rulerDown.x, e.clientY - S.rulerDown.y) < 4) rulerClick(toImg(e), S.rulerPrev);
+      else { const h0 = hitBorder(S.ruler.a); if (h0 && G.dist(h0.point, S.ruler.a) < 0.01) pick(h0.r); }   // a line that starts on a region's outline
       draw(); return;
     }
     if (S.drag) { if (S.drag.moved) { const r = region(S.selected); if (r) r.edited = true; refresh(true); } else if (S.drag.pan === undefined) S.undo.pop(); S.drag = null; return; }
@@ -681,17 +697,19 @@
     }
     const rows = S.classes.filter((c) => groups.has(c.id)).map((c) => [c, groups.get(c.id)]);
     if (groups.has("")) rows.push([null, groups.get("")]);
-    const sel = region(S.selected), m = sel && measures(sel), top = Math.max(excluded, ...rows.map((x) => x[1]));
+    const sel = region(S.selected), m = sel && measures(sel), top = Math.max(measured, excluded), img = S.img.width * S.img.height;
     const val = (t) => { const i = t.lastIndexOf(" "); return i < 0 ? t : `${t.slice(0, i)} <small>${t.slice(i + 1)}</small>`; };
     const tile = (name, t) => `<div class="stat"><span>${name}</span><b>${val(t)}</b></div>`;
+    const pc = (a, b) => { const v = b ? 100 * a / b : 0; return (v >= 10 || v === 0 ? Math.round(v) : v.toFixed(1)) + "%"; };
     el.innerHTML = `
       ${sel ? `<div><div class="meas-cap"><span>Selected</span><b>${esc(sel.name)}</b></div><div class="stat-grid">
         ${tile("Area", fmtArea(m.area))}${tile("Perimeter", fmtLen(m.perim))}${tile("Longest", fmtLen(m.feret))}${tile("Circularity", m.circ.toFixed(2))}</div></div>` : ""}
-      ${rows.length || excluded ? `<div><div class="meas-cap"><span>By class</span><span>Share</span></div><table class="meas-t"><tbody>${rows.map(([c, a]) => `<tr><td><span class="sw ${c ? "" : "none"}" ${c ? `style="background:rgb(${c.color})"` : ""}></span>${c ? esc(c.name) : "No class"}</td><td>${val(fmtArea(a, top))}</td><td>${measured ? Math.round(100 * a / measured) : 0}%</td></tr>`).join("")}
-        ${excluded ? `<tr class="ex"><td><span class="sw q"></span>Left out</td><td>${val(fmtArea(excluded, top))}</td><td>–</td></tr>` : ""}</tbody></table></div>` : ""}
-      <p class="note">${S.regions.length ? `The regions cover <b>${(100 * measured / (S.img.width * S.img.height)).toFixed(1)}%</b> of the image${excluded ? ", not counting the areas left out" : ""}.` : "No regions to measure."}</p>
-      <div class="meas-scale"><label for="pxUm">Pixel size</label><span class="in"><input type="number" id="pxUm" min="0" step="any" placeholder="not set" value="${um() || ""}"><span>µm / px</span></span></div>
-      <div class="meas-act"><button class="btn" id="measCsv" type="button">Download measurements (CSV)</button></div>`;
+      ${S.regions.length ? `<table class="meas-t"><thead><tr><th>By class</th><th>Area</th><th title="Share of all the regions">Regions</th><th title="Share of the whole image">Image</th></tr></thead><tbody>
+        ${rows.map(([c, a]) => `<tr><td><span class="sw ${c ? "" : "none"}" ${c ? `style="background:rgb(${c.color})"` : ""}></span>${c ? esc(c.name) : "No class"}</td><td>${val(fmtArea(a, top))}</td><td>${pc(a, measured)}</td><td>${pc(a, img)}</td></tr>`).join("")}
+        ${excluded ? `<tr class="ex"><td><span class="sw q"></span>Left out</td><td>${val(fmtArea(excluded, top))}</td><td>–</td><td>–</td></tr>` : ""}
+        <tr class="tot"><td>Total</td><td>${val(fmtArea(measured, top))}</td><td>100%</td><td>${pc(measured, img)}</td></tr></tbody></table>` : `<p class="note">No regions to measure.</p>`}
+      <div class="meas-foot"><label class="px-box" title="The size of one pixel, in micrometres. With it set, measurements are in µm and mm."><input type="number" id="pxUm" min="0" step="any" placeholder="Pixel size" aria-label="Pixel size" value="${um() || ""}"><span>µm/px</span></label>
+        <button class="btn" id="measCsv" type="button" title="One table of every region in this library">Download CSV</button></div>`;
     $("pxUm").onchange = async (e) => {
       try { const j = await api("/api/editor/library/scale", { id: S.lib.id, um: parseFloat(e.target.value) || 0 }); S.lib.pixel_um = j.pixel_um; renderMeasure(); renderBar(); draw(); }
       catch (err) { toast(err.message); }
@@ -792,7 +810,7 @@
         ${r.unsure ? '<span class="tag">unsure</span>' : ""}${r.source === "drawn" ? '<span class="tag">drawn</span>' : r.edited ? '<span class="tag">edited</span>' : ""}
         <span class="conf ${cls}">${c == null ? "" : Math.round(c * 100) + "%"}</span></button>`;
     }).join("") : `<p class="note" style="padding:6px 8px">${S.sid ? "No regions on this image. Use the Draw tool to add one." : "Nothing open."}</p>`;
-    $("queue").querySelectorAll(".q-item").forEach((b) => (b.onclick = () => { const r = region(b.dataset.id); S.selected = r.id; S.hole = null; focusRegion(r); refresh(); }));
+    $("queue").querySelectorAll(".q-item").forEach((b) => (b.onclick = () => { if (b.querySelector('[contenteditable="true"]')) return; const r = region(b.dataset.id); S.selected = r.id; S.hole = null; focusRegion(r); refresh(); }));
 
     $("delRegion").disabled = !region(S.selected);
     $("navPrev").disabled = $("navNext").disabled = !S.regions.length;
@@ -807,7 +825,7 @@
       : `Click a region to select it · drag empty space to pan · pinch or ${k(MOD)}-scroll to zoom`;
     else if (S.pickOp) h = `${S.pickOp.op === "merge" ? "Click the region to join with this one" : "Click the region to cut away from this one"} · ${k("Esc")} cancels`;
     else if (S.tool === "ruler") h = `Drag for a straight distance · click two points on one outline for the length along it, both ways round · click a region for its longest diameter, then another region for the gap between them · ${k("Esc")} clears`;
-    else if (S.tool === "label") h = `Click a region to give it a class · ${k("1")}–${k("9")} set the class of the selected region in any tool · ${k("U")} marks it unsure · hold ${k("X")} to hide the regions`;
+    else if (S.tool === "label") h = `Click a region for its class menu · with the menu open, ${k("1")}–${k("9")} pick the class · ${k("U")} marks the selected region unsure · hold ${k("X")} to hide the regions`;
     else if (S.draft) h = `Press the open end (orange) to continue · finish on the first node to close · ${k("Del")} removes the last node · ${k("Enter")} closes · ${k("Esc")} cancels`;
     else h = "Press, drag, release to draw a new region. Draw inside a region to cut a hole. Start and end on an outline to reroute that stretch. Draw right across a region to split it. Drag back along your line to un-draw.";
     $("hint").innerHTML = h;
@@ -825,7 +843,7 @@
     const cur = S.lib && S.lib.cases[S.caseIndex];
     $("doneBtn").hidden = !cur; $("doneBtn").classList.toggle("on", !!(cur && cur.done));
     $("doneBtn").title = cur && cur.done ? "Marked as done. Click to take the mark off (D)" : "Mark this image as done (D)";
-    $("prevCase").title = S.lib ? `Previous image in ${S.lib.name} ( [ )` : ""; $("nextCase").title = S.lib ? `Next image in ${S.lib.name} ( ] )` : "";
+    $("prevCase").title = S.lib ? `Previous image in ${S.lib.name} (←)` : ""; $("nextCase").title = S.lib ? `Next image in ${S.lib.name} (→)` : "";
   }
   /* Make a library the current one and open one of its images. */
   async function useLibrary(id, index) {
@@ -1093,6 +1111,23 @@
   $("open").onclick = showOpen; $("openEmpty").onclick = showOpen; $("export").onclick = () => showExport();
   $("undo").onclick = undo; $("redo").onclick = redo;
   $("zoomIn").onclick = () => zoomAt(1.25); $("zoomOut").onclick = () => zoomAt(0.8); $("fit").onclick = fitView;
+  $("queue").addEventListener("dblclick", (e) => {              // rename in place
+    const span = e.target.closest(".q-name"), item = span && span.closest(".q-item"), r = item && region(item.dataset.id); if (!r) return;
+    span.contentEditable = "true"; span.spellcheck = false; span.focus(); document.getSelection().selectAllChildren(span);
+    let over = false;
+    const finish = (keep) => {
+      if (over) return; over = true;
+      const v = span.textContent.replace(/\s+/g, " ").trim().slice(0, 40); span.contentEditable = "false";
+      if (keep && v && v !== r.name) { pushUndo(); r.name = v; refresh(true); } else renderPanel();
+    };
+    span.onkeydown = (ev) => {
+      ev.stopPropagation();
+      if (ev.key === "Enter") { ev.preventDefault(); finish(true); } else if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
+      else if (ev.key === " ") { ev.preventDefault(); document.execCommand("insertText", false, " "); }   // a space must not press the row's button
+    };
+    span.onkeyup = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
+    span.onblur = () => finish(true);
+  });
   $("delRegion").onclick = deleteSelected; $("navPrev").onclick = () => step(-1); $("navNext").onclick = () => step(1);
   $("toolEdit").onclick = () => setTool("edit"); $("toolDraw").onclick = () => setTool("draw"); $("toolLabel").onclick = () => setTool("label"); $("toolRuler").onclick = () => setTool("ruler");
   $("sbInfo").onclick = () => toast("The slider re-cuts a region from the model's output. This region was drawn, split or merged, so use Grow and Shrink.");
@@ -1100,8 +1135,11 @@
   $("slider").onchange = () => { sliderArmed = false; setTimeout(() => refresh(true), 250); };
   $("sliderReset").onclick = () => { sliderArmed = false; slide(S.meta.threshold).then(() => { sliderArmed = false; refresh(true); }); };
   $("shapeBar").addEventListener("click", (e) => { const b = e.target.closest("[data-op]"); if (b) shapeOp(b.dataset.op); });
-  if (store.get("seg-editor-measure") === "shut") $("measure").classList.add("shut");
-  $("measToggle").onclick = () => { const shut = $("measure").classList.toggle("shut"); store.set("seg-editor-measure", shut ? "shut" : "open"); };
+  document.querySelectorAll(".side [data-fold]").forEach((b) => {   // Display, Regions and Measure fold away
+    const sec = b.closest(".sec"), key = "seg-editor-fold-" + b.dataset.fold;
+    if (store.get(key) === "shut") sec.classList.add("shut");
+    b.onclick = () => store.set(key, sec.classList.toggle("shut") ? "shut" : "open");
+  });
   $("labelPop").addEventListener("click", (e) => {
     const r = region(S.labelFor); if (!r) return;
     const row = e.target.closest("[data-cls]");
@@ -1146,6 +1184,7 @@
 
   window.addEventListener("keydown", (e) => {
     if (e.target && e.target.matches && e.target.matches("input[type=number], input[type=text], textarea")) return;
+    if (e.target && e.target.isContentEditable) return;
     if (e.key === "[") { openCase(S.caseIndex - 1); return; } if (e.key === "]") { openCase(S.caseIndex + 1); return; }
     const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
     if ($("openModal").classList.contains("show") && S.pick != null && ["Enter", "ArrowDown", "ArrowUp"].includes(e.key)) {
@@ -1158,7 +1197,12 @@
     if (mod && k === "y") { e.preventDefault(); redo(); return; }
     if (mod) return;
     if (e.key === " ") { S.space = true; cv.style.cursor = "grab"; e.preventDefault(); return; }
-    if (/^[1-9]$/.test(e.key) && region(S.selected) && S.classes[+e.key - 1]) { setClass(region(S.selected), S.classes[+e.key - 1].id); return; }
+    if ((e.key === "ArrowLeft" || e.key === "ArrowRight") && !(e.target && e.target.matches && e.target.matches("input, select"))) { e.preventDefault(); openCase(S.caseIndex + (e.key === "ArrowRight" ? 1 : -1)); return; }
+    if (/^[1-9]$/.test(e.key)) {                                // with the label menu open: the class. Otherwise 1 to 4: the tool
+      if (S.labelFor) { const r = region(S.labelFor), c = S.classes[+e.key - 1]; if (r && c) { setClass(r, c.id); closeLabel(); } return; }
+      const t = ["edit", "draw", "label", "ruler"][+e.key - 1]; if (t) setTool(t);
+      return;
+    }
     if (k === "u" && region(S.selected)) { toggleUnsure(region(S.selected)); return; }
     if (k === "x") { if (!S.peek) { S.peek = true; draw(); } return; }
     if (k === "v") setTool("edit"); else if (k === "p") setTool("draw"); else if (k === "l") setTool("label"); else if (k === "r") setTool("ruler");
