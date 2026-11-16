@@ -699,15 +699,17 @@
     if (groups.has("")) rows.push([null, groups.get("")]);
     const sel = region(S.selected), m = sel && measures(sel), top = Math.max(measured, excluded), img = S.img.width * S.img.height;
     const val = (t) => { const i = t.lastIndexOf(" "); return i < 0 ? t : `${t.slice(0, i)} <small>${t.slice(i + 1)}</small>`; };
+    const num = (t) => t.slice(0, t.lastIndexOf(" ")), unitOf = (a) => { const t = fmtArea(a, top); return t.slice(t.lastIndexOf(" ") + 1); };
     const tile = (name, t) => `<div class="stat"><span>${name}</span><b>${val(t)}</b></div>`;
     const pc = (a, b) => { const v = b ? 100 * a / b : 0; return (v >= 10 || v === 0 ? Math.round(v) : v.toFixed(1)) + "%"; };
     el.innerHTML = `
       ${sel ? `<div><div class="meas-cap"><span>Selected</span><b>${esc(sel.name)}</b></div><div class="stat-grid">
         ${tile("Area", fmtArea(m.area))}${tile("Perimeter", fmtLen(m.perim))}${tile("Longest", fmtLen(m.feret))}${tile("Circularity", m.circ.toFixed(2))}</div></div>` : ""}
-      ${S.regions.length ? `<table class="meas-t"><thead><tr><th>By class</th><th>Area</th><th title="Share of all the regions">Regions</th><th title="Share of the whole image">Image</th></tr></thead><tbody>
-        ${rows.map(([c, a]) => `<tr><td><span class="sw ${c ? "" : "none"}" ${c ? `style="background:rgb(${c.color})"` : ""}></span>${c ? esc(c.name) : "No class"}</td><td>${val(fmtArea(a, top))}</td><td>${pc(a, measured)}</td><td>${pc(a, img)}</td></tr>`).join("")}
-        ${excluded ? `<tr class="ex"><td><span class="sw q"></span>Left out</td><td>${val(fmtArea(excluded, top))}</td><td>–</td><td>–</td></tr>` : ""}
-        <tr class="tot"><td>Total</td><td>${val(fmtArea(measured, top))}</td><td>100%</td><td>${pc(measured, img)}</td></tr></tbody></table>` : `<p class="note">No regions to measure.</p>`}
+      ${S.regions.length ? `<table class="meas-t"><colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"></colgroup>
+        <thead><tr><th>Class</th><th>Area <small>${unitOf(top)}</small></th><th title="Share of all the regions">Regions</th><th title="Share of the whole image">Image</th></tr></thead><tbody>
+        ${rows.map(([c, a]) => `<tr><td><span class="sw ${c ? "" : "none"}" ${c ? `style="background:rgb(${c.color})"` : ""}></span><span class="cn">${c ? esc(c.name) : "No class"}</span></td><td>${num(fmtArea(a, top))}</td><td>${pc(a, measured)}</td><td>${pc(a, img)}</td></tr>`).join("")}
+        ${excluded ? `<tr class="ex"><td><span class="sw q"></span><span class="cn">Left out</span></td><td>${num(fmtArea(excluded, top))}</td><td>–</td><td>–</td></tr>` : ""}
+        <tr class="tot"><td>Total</td><td>${num(fmtArea(measured, top))}</td><td>100%</td><td>${pc(measured, img)}</td></tr></tbody></table>` : `<p class="note">No regions to measure.</p>`}
       <div class="meas-foot"><label class="px-box" title="The size of one pixel, in micrometres. With it set, measurements are in µm and mm."><input type="number" id="pxUm" min="0" step="any" placeholder="Pixel size" aria-label="Pixel size" value="${um() || ""}"><span>µm/px</span></label>
         <button class="btn" id="measCsv" type="button" title="One table of every region in this library">Download CSV</button></div>`;
     $("pxUm").onchange = async (e) => {
@@ -810,7 +812,7 @@
         ${r.unsure ? '<span class="tag">unsure</span>' : ""}${r.source === "drawn" ? '<span class="tag">drawn</span>' : r.edited ? '<span class="tag">edited</span>' : ""}
         <span class="conf ${cls}">${c == null ? "" : Math.round(c * 100) + "%"}</span></button>`;
     }).join("") : `<p class="note" style="padding:6px 8px">${S.sid ? "No regions on this image. Use the Draw tool to add one." : "Nothing open."}</p>`;
-    $("queue").querySelectorAll(".q-item").forEach((b) => (b.onclick = () => { if (b.querySelector('[contenteditable="true"]')) return; const r = region(b.dataset.id); S.selected = r.id; S.hole = null; focusRegion(r); refresh(); }));
+    $("queue").querySelectorAll(".q-item").forEach((b) => (b.onclick = () => { const r = region(b.dataset.id); S.selected = r.id; S.hole = null; focusRegion(r); refresh(); }));
 
     $("delRegion").disabled = !region(S.selected);
     $("navPrev").disabled = $("navNext").disabled = !S.regions.length;
@@ -1111,22 +1113,29 @@
   $("open").onclick = showOpen; $("openEmpty").onclick = showOpen; $("export").onclick = () => showExport();
   $("undo").onclick = undo; $("redo").onclick = redo;
   $("zoomIn").onclick = () => zoomAt(1.25); $("zoomOut").onclick = () => zoomAt(0.8); $("fit").onclick = fitView;
-  $("queue").addEventListener("dblclick", (e) => {              // rename in place
-    const span = e.target.closest(".q-name"), item = span && span.closest(".q-item"), r = item && region(item.dataset.id); if (!r) return;
-    span.contentEditable = "true"; span.spellcheck = false; span.focus(); document.getSelection().selectAllChildren(span);
+  /* Rename in place: a text box laid exactly over the name. (The row is a button, and the click before a
+     double-click redraws the list, so the box sits over the fresh row, not inside it.) */
+  function renameRegion(id) {
+    const r = region(id), q = $("queue"), row = q.querySelector(`.q-item[data-id="${CSS.escape(id)}"]`), span = row && row.querySelector(".q-name");
+    if (!r || !span || q.querySelector(".q-rename")) return;
+    const qb = q.getBoundingClientRect(), b = span.getBoundingClientRect(), rb = row.getBoundingClientRect();
+    const inp = document.createElement("input");
+    inp.type = "text"; inp.className = "q-rename" + (row.classList.contains("on") ? " on" : ""); inp.value = r.name; inp.maxLength = 40; inp.spellcheck = false; inp.setAttribute("aria-label", "Region name");
+    Object.assign(inp.style, { left: b.left - qb.left + "px", top: rb.top - qb.top + q.scrollTop + "px", width: rb.right - b.left - 12 + "px", height: rb.height + "px" });
+    span.style.visibility = "hidden"; q.appendChild(inp); inp.focus(); inp.select();
     let over = false;
     const finish = (keep) => {
       if (over) return; over = true;
-      const v = span.textContent.replace(/\s+/g, " ").trim().slice(0, 40); span.contentEditable = "false";
+      const v = inp.value.replace(/\s+/g, " ").trim(); inp.remove();
       if (keep && v && v !== r.name) { pushUndo(); r.name = v; refresh(true); } else renderPanel();
     };
-    span.onkeydown = (ev) => {
-      ev.stopPropagation();
-      if (ev.key === "Enter") { ev.preventDefault(); finish(true); } else if (ev.key === "Escape") { ev.preventDefault(); finish(false); }
-      else if (ev.key === " ") { ev.preventDefault(); document.execCommand("insertText", false, " "); }   // a space must not press the row's button
-    };
-    span.onkeyup = (ev) => { ev.stopPropagation(); ev.preventDefault(); };
-    span.onblur = () => finish(true);
+    inp.onkeydown = (ev) => { ev.stopPropagation(); if (ev.key === "Enter") finish(true); else if (ev.key === "Escape") finish(false); };
+    inp.onblur = () => finish(true);
+    inp.onpointerdown = inp.onclick = inp.ondblclick = (ev) => ev.stopPropagation();
+  }
+  $("queue").addEventListener("dblclick", (e) => {
+    const item = e.target.closest(".q-item"); if (!item || e.target.closest(".q-rename")) return;
+    const id = item.dataset.id; setTimeout(() => renameRegion(id), 0);       // after the click's redraw
   });
   $("delRegion").onclick = deleteSelected; $("navPrev").onclick = () => step(-1); $("navNext").onclick = () => step(1);
   $("toolEdit").onclick = () => setTool("edit"); $("toolDraw").onclick = () => setTool("draw"); $("toolLabel").onclick = () => setTool("label"); $("toolRuler").onclick = () => setTool("ruler");

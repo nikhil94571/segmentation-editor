@@ -197,8 +197,11 @@
     // rename: double-click a name in the list
     {
       E.setTool("edit"); const nm = document.querySelector("#queue .q-item .q-name"), rid = nm.closest(".q-item").dataset.id;
-      nm.dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); nm.textContent = "gland A"; nm.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
-      out.rename = { name: E.region(rid).name, in_list: [...document.querySelectorAll("#queue .q-name")].some((x) => x.textContent === "gland A") };
+      nm.click(); await wait(50); const nm2 = document.querySelector(`#queue .q-item[data-id="${rid}"] .q-name`);   // a real double-click: click (list redraws), click, dblclick
+      nm2.click(); document.querySelector(`#queue .q-item[data-id="${rid}"] .q-name`).dispatchEvent(new MouseEvent("dblclick", { bubbles: true })); await wait(60);
+      const box = document.querySelector("#queue .q-rename"), focused = document.activeElement === box;
+      if (box) { box.value = "gland A"; box.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true })); }
+      out.rename = { box_opened: !!box, focused, name: E.region(rid).name, in_list: [...document.querySelectorAll("#queue .q-name")].some((x) => x.textContent === "gland A") };
       E.undo();
     }
     out.fold = (() => { const b = document.querySelector('[data-fold="regions"]'); b.click(); const shut = document.getElementById("secRegions").classList.contains("shut"); b.click(); return { shuts: shut, opens_again: !document.getElementById("secRegions").classList.contains("shut") }; })();
