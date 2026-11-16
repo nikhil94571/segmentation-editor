@@ -167,7 +167,7 @@ nobody is using it. Measured on 15 Nov 2026, it wakes in under a second.
 
 ## How well it works
 
-Measured on 11 Nov 2026, on regions read back from the saved `.tif`:
+Converter checks measured on 11 Nov 2026 on regions read back from the saved `.tif`; the model rows on 17 Nov 2026:
 
 | Check | Result |
 |---|---|
@@ -177,6 +177,9 @@ Measured on 11 Nov 2026, on regions read back from the saved `.tif`:
 | ImageJ `.tif`, RoiSet and QuPath GeoJSON | identical masks |
 | Shading of any colour, with the original image (`tests_overlay.py`: ten colours, three opacities) | mean IoU **0.985** |
 | Editor self-test (`viewer/editor/selftest.js`, 56 results through the real page, on the simulated practice set) | all pass, 17 Nov 2026 |
+| The model on 12 unseen BCSS test regions, trained on 8 (the practice images' model) | Dice **0.819** |
+| … after 5 rounds of 8 corrected regions (least confident first / random order, mean of 2 runs each) | Dice **0.853** / **0.856** ([details](docs/retraining/README.md)) |
+| … trained on all 52 at once, from scratch (reference) | Dice 0.855 |
 
 Known limits:
 

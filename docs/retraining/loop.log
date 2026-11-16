@@ -1,0 +1,65 @@
+03:13:45 first model: test Dice 0.8186
+03:14:10 least-confident/0 round 1: correcting 8 regions (model was wrong on 18.8% of their pixels)
+03:18:35 least-confident/0 round 1: test Dice 0.8391
+03:18:55 least-confident/0 round 2: correcting 8 regions (model was wrong on 13.4% of their pixels)
+03:23:21 least-confident/0 round 2: test Dice 0.8440
+03:23:37 least-confident/0 round 3: correcting 8 regions (model was wrong on 10.5% of their pixels)
+03:28:04 least-confident/0 round 3: test Dice 0.8511
+03:28:17 least-confident/0 round 4: correcting 8 regions (model was wrong on 10.8% of their pixels)
+03:32:45 least-confident/0 round 4: test Dice 0.8554
+03:32:52 least-confident/0 round 5: correcting 8 regions (model was wrong on 6.5% of their pixels)
+03:37:28 least-confident/0 round 5: test Dice 0.8547
+03:37:53 least-confident/1 round 1: correcting 8 regions (model was wrong on 18.8% of their pixels)
+03:42:21 least-confident/1 round 1: test Dice 0.8338
+03:42:41 least-confident/1 round 2: correcting 8 regions (model was wrong on 13.4% of their pixels)
+03:47:10 least-confident/1 round 2: test Dice 0.8532
+03:47:26 least-confident/1 round 3: correcting 8 regions (model was wrong on 10.1% of their pixels)
+03:51:51 least-confident/1 round 3: test Dice 0.8382
+03:52:03 least-confident/1 round 4: correcting 8 regions (model was wrong on 10.2% of their pixels)
+03:56:31 least-confident/1 round 4: test Dice 0.8425
+03:56:38 least-confident/1 round 5: correcting 8 regions (model was wrong on 6.9% of their pixels)
+04:01:04 least-confident/1 round 5: test Dice 0.8511
+04:01:08 random/0 round 1: correcting 8 regions (model was wrong on 12.5% of their pixels)
+04:05:30 random/0 round 1: test Dice 0.8079
+04:05:33 random/0 round 2: correcting 8 regions (model was wrong on 10.9% of their pixels)
+04:09:57 random/0 round 2: test Dice 0.8468
+04:10:02 random/0 round 3: correcting 8 regions (model was wrong on 10.2% of their pixels)
+04:14:18 random/0 round 3: test Dice 0.8470
+04:14:22 random/0 round 4: correcting 8 regions (model was wrong on 11.4% of their pixels)
+04:21:42 random/0 round 4: test Dice 0.8522
+04:21:50 random/0 round 5: correcting 8 regions (model was wrong on 10.4% of their pixels)
+04:26:57 random/0 round 5: test Dice 0.8635
+04:27:02 random/1 round 1: correcting 8 regions (model was wrong on 10.9% of their pixels)
+04:31:15 random/1 round 1: test Dice 0.8402
+04:31:19 random/1 round 2: correcting 8 regions (model was wrong on 12.9% of their pixels)
+04:35:33 random/1 round 2: test Dice 0.8511
+04:35:36 random/1 round 3: correcting 8 regions (model was wrong on 12.2% of their pixels)
+04:39:50 random/1 round 3: test Dice 0.8608
+04:39:53 random/1 round 4: correcting 8 regions (model was wrong on 10.6% of their pixels)
+04:44:07 random/1 round 4: test Dice 0.8476
+04:44:11 random/1 round 5: correcting 8 regions (model was wrong on 8.6% of their pixels)
+04:48:25 random/1 round 5: test Dice 0.8492
+04:48:25 reference: training on all 52 regions
+04:49:48   step 100/2100 loss 0.934 (82s)
+04:51:10   step 200/2100 loss 0.481 (165s)
+04:52:33   step 300/2100 loss 0.486 (248s)
+04:53:55   step 400/2100 loss 0.400 (330s)
+04:55:18   step 500/2100 loss 0.570 (413s)
+04:56:41   step 600/2100 loss 0.377 (495s)
+04:58:03   step 700/2100 loss 0.355 (578s)
+04:59:25   step 800/2100 loss 0.322 (660s)
+05:00:48   step 900/2100 loss 0.434 (743s)
+05:02:10   step 1000/2100 loss 0.204 (825s)
+05:03:33   step 1100/2100 loss 0.418 (907s)
+05:04:55   step 1200/2100 loss 0.254 (990s)
+05:06:17   step 1300/2100 loss 0.258 (1072s)
+05:07:40   step 1400/2100 loss 0.201 (1155s)
+05:09:03   step 1500/2100 loss 0.254 (1237s)
+05:10:25   step 1600/2100 loss 0.237 (1320s)
+05:11:47   step 1700/2100 loss 0.287 (1402s)
+05:13:10   step 1800/2100 loss 0.288 (1485s)
+05:14:32   step 1900/2100 loss 0.357 (1567s)
+05:15:55   step 2000/2100 loss 0.337 (1649s)
+05:17:17   step 2100/2100 loss 0.249 (1732s)
+05:17:23 done: docs/retraining/results.json
+exit 0
