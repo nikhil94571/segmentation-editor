@@ -119,6 +119,27 @@
     out.label_menu.click_sets = E.region(piece.id).cls === S.classes[0].id; out.label_menu.closes = !pop.classList.contains("open");
     key("x"); out.peek_on = S.peek === true; document.body.dispatchEvent(new KeyboardEvent("keyup", { key: "x", bubbles: true })); out.peek_off = S.peek === false;
     E.setTool("edit");
+    // 12d. measure panel and the reshape bar
+    const rm = S.regions.find((x) => x.source === "model" && x.paths.length === 1 && x.label != null);
+    S.selected = rm.id; E.refresh(); await wait(300);
+    out.measure = { class_rows: document.querySelectorAll("#measBody .meas-t tr").length, selected_shown: !!document.querySelector("#measBody .meas-sel"),
+      bar_open: document.getElementById("shapeBar").classList.contains("open"), area_matches: Math.abs(E.measures(rm).area - area(rm)) < 0.02 * area(rm) };
+    const a1 = area(rm); document.getElementById("sbDist").value = 10;
+    await E.shapeOp("grow"); const a2 = area(E.region(rm.id)); await E.shapeOp("shrink"); const a3 = area(E.region(rm.id));
+    out.reshape_offset = { start: Math.round(a1), grown_10: Math.round(a2), shrunk_back: Math.round(a3) };
+    const nB = S.regions.length; await E.shapeOp("band");
+    const band = S.regions[S.regions.length - 1];
+    out.reshape_band = { added: S.regions.length - nB, band_area: Math.round(E.measures(band).area), selected: S.selected === band.id };
+    E.undo();
+    const pa = S.regions.find((x) => x.name === tgt.name + "a"), pb = S.regions.find((x) => x.name === tgt.name + "b"), sum = area(pa) + area(pb), nM = S.regions.length;
+    await E.serverShape("merge", pa, pb);
+    out.reshape_merge = { regions_removed: nM - S.regions.length, merged_area: Math.round(E.measures(E.region(pa.id)).area), sum_of_pieces: Math.round(sum) };
+    await E.saveNow();
+    const mc = await (await fetch("/api/editor/library/measurements?id=" + S.lib.id)).json();
+    out.measure_csv = { rows: mc.rows, columns: mc.csv.split("\n")[0].trim() };
+    E.setTool("ruler"); ev("pointerdown", { x: 100, y: 100 }); ev("pointermove", { x: 400, y: 500 }); ev("pointerup", { x: 400, y: 500 });
+    out.ruler_px = S.ruler ? Math.round(G.dist(S.ruler.a, S.ruler.b)) : null;
+    E.setTool("edit");
     // 13. export
     const st = await (await fetch("/api/editor/settings")).json(), testDest = st.root + "/scratch/export-test";
     document.getElementById("export").click(); await wait(700);

@@ -117,6 +117,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._editor(eb.get_settings)
         elif path == "/api/editor/libraries":
             return self._editor(eb.list_libraries)
+        elif path == "/api/editor/library/measurements":
+            return self._editor(eb.library_measurements, q.get("id", [""])[0])
         elif path == "/api/editor/library/preview":
             try:
                 data = eb.case_preview(q.get("id", [""])[0], int(q.get("index", ["0"])[0]))
@@ -216,6 +218,10 @@ class Handler(SimpleHTTPRequestHandler):
             return self._editor(eb.library_finish, body.get("id", ""))
         if url.path == "/api/editor/library/rename":
             return self._editor(eb.rename_library, body.get("id", ""), body.get("name", ""))
+        if url.path == "/api/editor/library/scale":
+            return self._editor(eb.set_scale, body.get("id", ""), body.get("um") or 0)
+        if url.path == "/api/editor/reshape":
+            return self._editor(eb.reshape, body.get("id", ""), body.get("op", ""), body.get("a"), body.get("b"), body.get("dist") or 0)
         if url.path == "/api/editor/library/classes":
             return self._editor(eb.set_classes, body.get("id", ""), body.get("classes") or [])
         if url.path == "/api/editor/library/delete":

@@ -707,9 +707,120 @@ def list_libraries():
 
 def get_library(lid):
     lib = _read_lib(lid)
-    return {"id": lib["id"], "name": lib["name"], "classes": lib.get("classes"),
+    return {"id": lib["id"], "name": lib["name"], "classes": _classes(lib), "pixel_um": lib.get("pixel_um"),
             "cases": [{"name": c["name"], "route": c["route"], "edited": _edited(c), "done": bool(c.get("done"))}
                       for c in lib["cases"]]}
+
+
+DEFAULT_CLASSES = [
+    {"id": "tumour", "name": "Tumour", "color": [214, 69, 65], "exclude": False},
+    {"id": "stroma", "name": "Stroma", "color": [38, 150, 100], "exclude": False},
+    {"id": "necrosis", "name": "Necrosis", "color": [205, 140, 20], "exclude": False},
+    {"id": "normal", "name": "Normal", "color": [20, 150, 170], "exclude": False},
+    {"id": "exclude", "name": "Exclude", "color": [95, 100, 120], "exclude": True},
+]
+
+
+def _classes(lib):
+    return lib["classes"] if lib.get("classes") is not None else DEFAULT_CLASSES
+
+
+def set_scale(lid, um):
+    """The library's pixel size in micrometres per pixel (0 or nothing = not set: measurements stay in pixels)."""
+    lib = _read_lib(lid)
+    um = float(um or 0)
+    if um < 0 or um > 1000:
+        raise ValueError("The pixel size should be between 0 and 1000 µm per pixel.")
+    lib["pixel_um"] = um or None
+    _write_lib(lib)
+    return {"pixel_um": lib["pixel_um"]}
+
+
+def reshape(sid, op, a, b=None, dist=0.0):
+    """Whole-region edits worked out on pixel masks: merge, subtract, offset (grow or shrink evenly) and band.
+    a, b: a region as a list of rings [[x, y], ...]; dist in image pixels. -> the outlines of the result."""
+    meta = json.loads((_sdir(sid) / "meta.json").read_text())
+    H, W = meta["height"], meta["width"]
+    dist = float(dist or 0)
+    if abs(dist) > 4000:
+        raise ValueError("That distance is larger than the image.")
+    ra = [np.asarray(r, float) for r in (a or []) if len(r) >= 3]
+    rb = [np.asarray(r, float) for r in (b or []) if len(r) >= 3]
+    if not ra or (op in ("merge", "subtract") and not rb):
+        raise ValueError("Select a region first.")
+    pts, pad = np.vstack(ra + rb), int(abs(dist)) + 8
+    x0, y0 = max(int(pts[:, 0].min()) - pad, 0), max(int(pts[:, 1].min()) - pad, 0)
+    x1, y1 = min(int(pts[:, 0].max()) + pad + 1, W), min(int(pts[:, 1].max()) + pad + 1, H)
+    shp, off = (y1 - y0, x1 - x0), np.array([x0, y0])
+
+    def mask(rings):
+        m = np.zeros(shp, bool)
+        for r in rings:
+            m ^= _fill(r - off, shp)                   # even-odd, as the editor draws it
+        return m
+
+    A = mask(ra)
+    if op == "merge":
+        B = mask(rb)
+        bridge = ndi.binary_dilation(A, iterations=2) & ndi.binary_dilation(B, iterations=2)   # close a hairline gap
+        out = A | B | bridge
+        if label(out, connectivity=2).max() > 1:
+            raise ValueError("Those two regions do not touch, so they cannot be merged into one.")
+    elif op == "subtract":
+        out = A & ~mask(rb)
+    elif op == "offset":
+        out = (ndi.distance_transform_edt(~A) <= dist) if dist >= 0 else (ndi.distance_transform_edt(A) > -dist)
+    elif op == "band":
+        out = (ndi.distance_transform_edt(~A) <= abs(dist)) & ~A
+    else:
+        raise ValueError("Unknown shape change.")
+    out = remove_small_objects(out, max_size=30)
+    if not out.any():
+        raise ValueError("Nothing would be left of the region.")
+    return {"rings": _rings(np.pad(out, 2), (x0 - 2, y0 - 2)), "area": int(out.sum())}
+
+
+def library_measurements(lid):
+    """One row per region for every image of a library, as CSV text: class, area, perimeter, circularity."""
+    import csv
+    import io
+    lib = _read_lib(lid)
+    um, classes = lib.get("pixel_um") or None, {c["id"]: c for c in _classes(lib)}
+    rows = []
+    for i, c in enumerate(lib["cases"]):
+        sd = _sdir(open_library_case(lid, i)["id"])
+        if (sd / "state.json").exists():
+            state = json.loads((sd / "state.json").read_text())
+            regs = list(zip(state["regions"], _state_rings(state)))
+        else:
+            regs = [({"name": r["name"], "meanProb": r.get("mean_prob")}, [np.asarray(x, float) for x in r["rings"]])
+                    for r in json.loads((sd / "meta.json").read_text())["regions"]]
+        for r, rings in regs:
+            rings = [np.asarray(x, float) for x in rings if len(x) >= 3]
+            if not rings:
+                continue
+            depth = _depths(rings)
+            area = sum((-1 if d % 2 else 1) * abs(_shoelace(x)) for x, d in zip(rings, depth))
+            perim = sum(float(np.linalg.norm(np.roll(x, -1, axis=0) - x, axis=1).sum()) for x, d in zip(rings, depth) if d == 0)
+            cl = classes.get(r.get("cls") or "")
+            rows.append({
+                "image": c["name"], "region": r["name"], "class": cl["name"] if cl else "",
+                "left_out": "yes" if cl and cl.get("exclude") else "no", "unsure": "yes" if r.get("unsure") else "no",
+                "note": r.get("note", ""), "model_confidence": "" if r.get("meanProb") is None else round(r["meanProb"], 3),
+                "area_px": round(area, 1), "perimeter_px": round(perim, 1),
+                "circularity": round(4 * np.pi * area / perim ** 2, 3) if perim else "",
+                "area_um2": round(area * um * um, 2) if um else "", "perimeter_um": round(perim * um, 2) if um else "",
+                "pixel_um": um or "", "image_done": "yes" if c.get("done") else "no"})
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=list(rows[0].keys()) if rows else ["image", "region"])
+    w.writeheader()
+    w.writerows(rows)
+    return {"name": f"{_slug(lib['name'])}_measurements.csv", "csv": buf.getvalue(), "rows": len(rows)}
+
+
+def _shoelace(xy):
+    x, y = xy[:, 0], xy[:, 1]
+    return 0.5 * float(np.dot(x, np.roll(y, -1)) - np.dot(y, np.roll(x, -1)))
 
 
 def set_classes(lid, classes):

@@ -121,6 +121,42 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block
 .cls-row input[type=text] { flex: 1; min-width: 0; }
 @media (prefers-reduced-motion: reduce) { .pop { transition: opacity .1s; transform: none; } }
 
+/* reshape bar */
+.shape-bar { position: absolute; z-index: 5; left: 12px; right: 12px; bottom: 12px; width: fit-content; margin: 0 auto; display: flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 3px;
+  padding: 5px 8px; background: var(--modal-bg); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-md); font-size: var(--fs-small); color: var(--ink-soft);
+  opacity: 0; pointer-events: none; transform: translateY(14px); transition: opacity .14s ease, transform .2s cubic-bezier(.2,.9,.3,1.2); }
+.shape-bar.open { opacity: 1; pointer-events: auto; transform: none; }
+.sb { padding: 5px 9px; border-radius: 9px; color: var(--ink); white-space: nowrap; }
+.sb:hover { background: var(--bg); }
+.sb.on { background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.sb-v { width: 1px; height: 18px; background: var(--line); margin: 0 5px; }
+.shape-bar label { margin-right: 4px; }
+.shape-bar input { width: 62px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--ink); text-align: right; font-family: var(--font-mono); font-size: var(--fs-small); }
+.sb-u { margin: 0 4px 0 3px; color: var(--ink-mute); }
+.stage.has-bar .toast { bottom: 62px; }
+@media (prefers-reduced-motion: reduce) { .shape-bar { transition: opacity .1s; } }
+
+/* measure */
+.measure { border-top: 1px solid var(--line); border-bottom: none; padding: 10px 14px; display: flex; flex-direction: column; flex: 0 1 auto; min-height: 38px; overflow: hidden; }
+.meas-h { flex: none; }
+.detail, .side-foot { flex: none; }
+.meas-h { width: 100%; display: flex; align-items: center; justify-content: space-between; }
+.measure .chev { width: 15px; height: 15px; fill: none; stroke: var(--ink-mute); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; }
+.measure.shut .chev { transform: rotate(-90deg); }
+.measure.shut .meas-b { display: none; }
+.meas-b { margin-top: 9px; max-height: 210px; flex: 1 1 auto; min-height: 0; overflow-y: auto; font-size: var(--fs-small); color: var(--ink-soft); }
+.meas-scale input { width: 72px; padding: 4px 6px; border-radius: 8px; border: 1px solid var(--line); background: transparent; color: var(--ink); font-family: var(--font-mono); font-size: var(--fs-small); }
+.meas-sel { display: grid; grid-template-columns: 1fr 1fr; gap: 3px 12px; margin-top: 10px; }
+.meas-sel b { grid-column: 1 / -1; font-family: var(--font-mono); color: var(--ink); font-weight: 600; }
+.meas-sel i, .meas-t td:nth-child(n+2) { font-style: normal; font-family: var(--font-mono); color: var(--ink); font-variant-numeric: tabular-nums; }
+.meas-t { width: 100%; border-collapse: collapse; margin-top: 10px; }
+.meas-t td { padding: 3px 0; }
+.meas-t td:nth-child(n+2) { text-align: right; padding-left: 10px; }
+.meas-t td:first-child .sw { margin-right: 7px; }
+.meas-t tr.ex td { color: var(--ink-mute); }
+.meas-act { margin-top: 9px; }
+.meas-act .btn { width: 100%; }
+
 /* side panel */
 .side { background: var(--panel); border-left: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
 .sec { padding: 12px 14px; border-bottom: 1px solid var(--line-soft); }
@@ -404,6 +440,7 @@ a.btn { text-decoration: none; }
     <button class="tool on" id="toolEdit" title="Edit: move nodes, bend lines (V)"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg><kbd>V</kbd></button>
     <button class="tool" id="toolDraw" title="Draw: new regions, reroute outlines (P)"><svg viewBox="0 0 24 24"><path d="M4 20l1-5L16 4l4 4L9 19z"/><path d="M14 6l4 4"/></svg><kbd>P</kbd></button>
     <button class="tool" id="toolLabel" title="Label: say what a region is (L)"><svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.2"/></svg><kbd>L</kbd></button>
+    <button class="tool" id="toolRuler" title="Ruler: measure a distance (R)"><svg viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21z"/><path d="M7.5 12.5l2 2M10.5 9.5l2 2M13.5 6.5l2 2"/></svg><kbd>R</kbd></button>
   </nav>
 
   <main class="stage" id="stage">
@@ -415,6 +452,17 @@ a.btn { text-decoration: none; }
       <p style="margin:14px auto 0">New here? <button class="link" id="tutEmpty" type="button">Watch the tutorial</button></p>
     </div></div>
     <div class="pop" id="labelPop"></div>
+    <div class="shape-bar" id="shapeBar">
+      <button class="sb" data-op="merge" type="button" title="Join this region with one that touches or overlaps it">Merge</button>
+      <button class="sb" data-op="subtract" type="button" title="Cut another region's area out of this one">Subtract</button>
+      <button class="sb" data-op="fill" type="button" title="Remove every hole in this region">Fill holes</button>
+      <button class="sb" data-op="smooth" type="button" title="Smooth the outline, leaving fewer nodes">Smooth</button>
+      <span class="sb-v"></span>
+      <label for="sbDist">Distance</label><input type="number" id="sbDist" min="0" step="any" value="50"><span class="sb-u" id="sbUnit">px</span>
+      <button class="sb" data-op="grow" type="button" title="Move the whole edge outward by this distance">Grow</button>
+      <button class="sb" data-op="shrink" type="button" title="Move the whole edge inward by this distance">Shrink</button>
+      <button class="sb" data-op="band" type="button" title="Add a new region: a band of this width around the outside">Band</button>
+    </div>
     <div class="toast" id="toast"></div>
   </main>
 
@@ -430,6 +478,10 @@ a.btn { text-decoration: none; }
     </div>
     <div class="queue" id="queue"></div>
     <div class="detail" id="detail"></div>
+    <div class="sec measure" id="measure">
+      <button class="sec-h meas-h" id="measToggle" type="button"><span>Measure</span><svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
+      <div class="meas-b" id="measBody"></div>
+    </div>
     <div class="side-foot"><button class="btn done-btn" id="doneBtn" hidden title="Mark this image as done (D)"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg><span id="doneLabel">Mark done</span><kbd>D</kbd></button></div>
   </aside>
 
@@ -496,7 +548,7 @@ a.btn { text-decoration: none; }
 <div class="backdrop" id="keysModal"><div class="modal" style="width:480px">
   <div class="modal-h"><h3>Shortcuts</h3><button class="icon-btn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
   <div class="modal-b"><div class="keys">
-    <span><kbd>V</kbd> <kbd>P</kbd> <kbd>L</kbd></span><span>Edit tool, Draw tool, Label tool</span>
+    <span><kbd>V</kbd> <kbd>P</kbd> <kbd>L</kbd> <kbd>R</kbd></span><span>Edit tool, Draw tool, Label tool, Ruler</span>
     <span><kbd>1</kbd>–<kbd>9</kbd> <kbd>U</kbd></span><span>Give the selected region a class, mark it unsure</span>
     <span>Hold <kbd>X</kbd></span><span>Hide the regions to see the bare tissue</span>
     <span><kbd>[</kbd> <kbd>]</kbd></span><span>Previous, next image in the library</span>
