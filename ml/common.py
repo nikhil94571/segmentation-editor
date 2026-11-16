@@ -48,7 +48,8 @@ def load_roi(name, mpp=MODEL_MPP):
         z = np.load(cache)
         return z["rgb"], z["y"]
     f = mpp / SRC_MPP
-    rgb = _down(Image.open(BCSS / "rgb" / name).convert("RGB"), f, Image.Resampling.LANCZOS)
+    src = BCSS / "rgbs_colorNormalized" / name                    # as ml/fetch_bcss.py saves it
+    rgb = _down(Image.open(src if src.exists() else BCSS / "rgb" / name).convert("RGB"), f, Image.Resampling.LANCZOS)
     m = Image.open(BCSS / "masks" / name)
     m = _down(m, f, Image.Resampling.NEAREST).resize(rgb.size, Image.Resampling.NEAREST)
     m = np.asarray(m)
@@ -63,7 +64,7 @@ def load_roi(name, mpp=MODEL_MPP):
 def splits(seed=7):
     """Fixed split of the 64 downloaded regions, by patient (each region is a different patient):
     12 test, 8 to train the first model, 40 in the pool that experts correct, round by round."""
-    names = [n for n in (BCSS / "picked.txt").read_text().split() if n]
+    names = [n for n in (ROOT / "ml" / "bcss_picked.txt").read_text().split() if n]
     names = sorted(names)
     random.Random(seed).shuffle(names)
     return {"test": names[:12], "initial": names[12:20], "pool": names[20:]}

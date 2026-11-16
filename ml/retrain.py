@@ -112,7 +112,8 @@ def main():
     test = [C.load_roi(n) for n in test_names]
     before = [C.dice(C.predict(model, rgb), y) for rgb, y in test]
     fit_before = [C.dice(C.predict(model, rgb), y) for _, rgb, y, _ in ex]
-    keep = [C.load_roi(n) for n in (meta.get("trained_on") or []) if (C.BCSS / "rgb" / n).exists()]
+    keep = [C.load_roi(n) for n in (meta.get("trained_on") or [])
+            if (C.BCSS / "rgbs_colorNormalized" / n).exists() or (C.BCSS / "rgb" / n).exists() or (C.BCSS / "cache" / f"{Path(n).stem}@{C.MODEL_MPP}.npz").exists()]
     C.seed_all(0)
     model = C.train(model, keep + [(rgb, y) for _, rgb, y, _ in ex], a.steps, lr=1e-4, seed=0, log=print)
     after = [C.dice(C.predict(model, rgb), y) for rgb, y in test]
