@@ -42,13 +42,19 @@ def main():
     for k in a.cases:
         name = man["cases"][k - 1]["name"]
         sid = eb.open_library_case("practice", k - 1)["id"]
-        expert = np.asarray(Image.open(ROOT / "data" / "practice-bcss" / "expert" / f"{name}_expert.png")) == 255
-        geoms, _ = h2.region_geometry(expert, 1.5)
-        regions = [{"id": f"x{i}", "name": f"corrected-{i:02d}", "source": "drawn", "label": None, "t": None, "meanProb": None,
-                    "edited": True, "paths": [path_of(outer)] + [path_of(h) for h in holes]}
-                   for i, (_, outer, holes) in enumerate(geoms, 1) if len(outer) >= 3]
+        ex = np.asarray(Image.open(ROOT / "data" / "practice-bcss" / "expert" / f"{name}_expert.png"))
+        regions = []
+        # tumour, then the parts BCSS did not annotate, given the "Exclude" class so retraining ignores them
+        for mask, cls in ((ex == 255, "tumour"), (ex == 128, "exclude")):
+            geoms, _ = h2.region_geometry(mask, 1.5)
+            for _, outer, holes in geoms:
+                if len(outer) >= 3:
+                    i = len(regions) + 1
+                    regions.append({"id": f"x{i}", "name": f"{'corrected' if cls == 'tumour' else 'not-annotated'}-{i:02d}",
+                                    "source": "drawn", "label": None, "t": None, "meanProb": None, "edited": True, "cls": cls,
+                                    "paths": [path_of(outer)] + [path_of(h) for h in holes]})
         eb.save_state(sid, {"regions": regions, "counter": len(regions)})
-        print(f"practice-{k:02d}: saved {len(regions)} expert regions as its corrections")
+        print(f"practice-{k:02d}: saved {len(regions)} regions ({sum(r['cls'] == 'tumour' for r in regions)} tumour, the rest not annotated)")
 
 
 if __name__ == "__main__":

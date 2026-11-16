@@ -2,10 +2,11 @@
 
   .venv-ml/bin/python ml/retrain.py --library practice                  # the corrections saved in a library
   .venv-ml/bin/python ml/retrain.py --library practice --data /path/to/DATA_DIR --workspace <id>
-  .venv-ml/bin/python ml/retrain.py --pairs out/corrected               # folders of <name>_image.* + <name>_mask.png
+  .venv-ml/bin/python ml/retrain.py --pairs out/corrected --mpp 0.5    # folders of <name>_image.* + <name>_mask.png
 
-Every image in the library that has saved corrections becomes a training example: the regions as the expert left
-them are tumour, regions given a class marked "leave out of measurements" are ignored, and the rest is other tissue.
+Every image in the library that has saved corrections becomes a training example: regions with no class or the
+class "Tumour" are tumour, regions of any class marked "leave out of measurements" are ignored, regions of any other
+class (Stroma, Necrosis, Normal...) and everything else are other tissue.
 The model is fine-tuned from --base on those examples together with the regions it was first trained on (so it does
 not forget them), then scored before and after on the BCSS test regions it never sees (practice images that were corrected are
 left out of that score, since the practice images are themselves BCSS test regions).
@@ -22,6 +23,23 @@ from PIL import Image
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import common as C  # noqa: E402
+
+PRACTICE = C.ROOT / "data" / "practice-bcss"
+
+
+def _digest(rgb):
+    import hashlib
+    return hashlib.md5(np.ascontiguousarray(rgb).tobytes()).hexdigest()
+
+
+def practice_sources():
+    """Pixel digest of each built-in practice image -> its BCSS region. The practice images are BCSS test regions,
+    so a corrected one must never be scored as unseen; matching on the pixels works whatever library it is in."""
+    man = PRACTICE / "manifest.json"
+    if not man.exists():
+        return {}
+    return {_digest(np.asarray(Image.open(PRACTICE / f"{c['name']}_image.jpg").convert("RGB"))): c["source"]
+            for c in json.loads(man.read_text())["cases"]}
 
 
 def to_model_mpp(rgb, y, mpp):
@@ -46,10 +64,8 @@ def from_library(lid, data_dir, workspace, mpp):
     if not mpp:
         raise SystemExit("This library has no pixel size. Set it in the editor's Measure panel, or pass --mpp.")
     leave_out = {c["id"] for c in eb._classes(lib) if c.get("exclude")}
-    sources = {}                                                 # the built-in practice images are BCSS test regions
-    man = C.ROOT / "data" / "practice-bcss" / "manifest.json"
-    if lid == "practice" and man.exists() and lib.get("pixel_um"):
-        sources = {f"practice-{i:02d}": c["source"] for i, c in enumerate(json.loads(man.read_text())["cases"], 1)}
+    tumour = {None, "", "tumour"}
+    sources = practice_sources()
     out = []
     for i, case in enumerate(lib["cases"]):
         sid = case.get("sid")
@@ -59,13 +75,18 @@ def from_library(lid, data_dir, workspace, mpp):
         state = json.loads((sd / "state.json").read_text())
         rgb = np.asarray(Image.open(sd / "tissue.png").convert("RGB"))
         y = np.zeros(rgb.shape[:2], np.uint8)
+        masks = []
         for reg, rings in zip(state["regions"], eb._state_rings(state)):
             m = np.zeros(y.shape, bool)
             for r in rings:
                 if len(r) >= 3:
                     m ^= _fill(r, y.shape)
-            y[m] = C.IGNORE if reg.get("cls") in leave_out else 1
-        out.append((case["name"], *to_model_mpp(rgb, y, mpp), sources.get(case["name"])))
+            cls = reg.get("cls")
+            masks.append((2 if cls in leave_out else 1 if cls in tumour else 0, m))
+        for rank, m in sorted(masks, key=lambda t: t[0]):          # fixed order: left-out areas win over tumour
+            if rank:
+                y[m] = C.IGNORE if rank == 2 else 1
+        out.append((case["name"], *to_model_mpp(rgb, y, mpp), sources.get(_digest(rgb))))
     return out
 
 
@@ -79,7 +100,7 @@ def from_pairs(folder, mpp):
             continue
         rgb = np.asarray(Image.open(img).convert("RGB"))
         y = (np.asarray(Image.open(m).convert("L")) > 127).astype(np.uint8)
-        out.append((stem, *to_model_mpp(rgb, y, mpp), None))
+        out.append((stem, *to_model_mpp(rgb, y, mpp), practice_sources().get(_digest(rgb))))
     return out
 
 
@@ -107,7 +128,9 @@ def main():
     print(f"{len(ex)} corrected image(s):", ", ".join(n for n, _, _, _ in ex))
 
     model, meta = C.load(a.base)
-    seen = {src for _, _, _, src in ex if src}                   # never score on an image that was just corrected
+    seen = {src for _, _, _, src in ex if src} | set(meta.get("test_regions_used") or [])   # never score on a test region
+    if seen:                                                                                  # any model in the chain saw
+        print(f"Left out of the score: {len(seen)} practice image(s) that are BCSS test regions and have been trained on")
     test_names = [n for n in C.splits()["test"] if n not in seen]
     test = [C.load_roi(n) for n in test_names]
     before = [C.dice(C.predict(model, rgb), y) for rgb, y in test]
@@ -118,7 +141,8 @@ def main():
     model = C.train(model, keep + [(rgb, y) for _, rgb, y, _ in ex], a.steps, lr=1e-4, seed=0, log=print)
     after = [C.dice(C.predict(model, rgb), y) for rgb, y in test]
     fit_after = [C.dice(C.predict(model, rgb), y) for _, rgb, y, _ in ex]
-    C.save(model, a.out, {"base": Path(a.base).name, "trained_on": (meta.get("trained_on") or []) + [f"corrected:{n}" for n, _, _, _ in ex]})
+    C.save(model, a.out, {"base": Path(a.base).name, "test_regions_used": sorted(seen),
+                          "trained_on": (meta.get("trained_on") or []) + [src or f"corrected:{n}" for n, _, _, src in ex]})
     report = {"base": a.base, "out": a.out, "corrected": [n for n, _, _, _ in ex], "steps": a.steps, "test_regions_scored": len(test_names),
               "bcss_test_dice_before": float(np.mean(before)), "bcss_test_dice_after": float(np.mean(after)),
               "corrected_images_dice_before": float(np.mean(fit_before)), "corrected_images_dice_after": float(np.mean(fit_after))}

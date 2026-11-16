@@ -62,10 +62,11 @@ def load_roi(name, mpp=MODEL_MPP):
 
 
 def splits(seed=7):
-    """Fixed split of the 64 downloaded regions, by patient (each region is a different patient):
-    12 test, 8 to train the first model, 40 in the pool that experts correct, round by round."""
+    """Fixed split of the 64 downloaded regions (each from a different patient, checked below): 12 test, 8 to train
+    the first model, 44 in the pool that experts correct, round by round."""
     names = [n for n in (ROOT / "ml" / "bcss_picked.txt").read_text().split() if n]
     names = sorted(names)
+    assert len({n[:12] for n in names}) == len(names), "two regions from one patient: the split would leak"
     random.Random(seed).shuffle(names)
     return {"test": names[:12], "initial": names[12:20], "pool": names[20:]}
 
@@ -170,7 +171,7 @@ def predict(model, rgb, tile=512, overlap=96):
     ys = list(range(0, max(Hp - tile, 0) + 1, step)) + ([Hp - tile] if (Hp - tile) % step else [])
     xs = list(range(0, max(Wp - tile, 0) + 1, step)) + ([Wp - tile] if (Wp - tile) % step else [])
     w1 = np.minimum(np.arange(tile) + 1, np.arange(tile)[::-1] + 1).astype(np.float32)
-    win = np.minimum(np.outer(w1, w1), overlap) / overlap
+    win = np.minimum(np.minimum.outer(w1, w1), overlap) / overlap        # fades out towards every tile edge
     acc = np.zeros((Hp, Wp), np.float32)
     wsum = np.zeros((Hp, Wp), np.float32)
     for r in sorted(set(ys)):

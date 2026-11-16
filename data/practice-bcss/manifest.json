@@ -25,12 +25,12 @@
   },
   {
    "name": "bcss-02",
-   "source": "TCGA-AR-A1AR-DX1_xmin12708_ymin29100_MPP-0.2500.png",
+   "source": "TCGA-D8-A27H-DX1_xmin8738_ymin8063_MPP-0.2500.png",
    "size_px": [
-    1600,
-    2530
+    1506,
+    1392
    ],
-   "model_dice_vs_expert": 0.839
+   "model_dice_vs_expert": 0.8339
   },
   {
    "name": "bcss-03",
@@ -39,7 +39,7 @@
     1478,
     1786
    ],
-   "model_dice_vs_expert": 0.6402
+   "model_dice_vs_expert": 0.6368
   },
   {
    "name": "bcss-04",
@@ -48,7 +48,7 @@
     1104,
     1309
    ],
-   "model_dice_vs_expert": 0.7746
+   "model_dice_vs_expert": 0.7728
   },
   {
    "name": "bcss-05",
@@ -57,7 +57,7 @@
     1514,
     1986
    ],
-   "model_dice_vs_expert": 0.9022
+   "model_dice_vs_expert": 0.9018
   },
   {
    "name": "bcss-06",
@@ -66,7 +66,7 @@
     1564,
     3452
    ],
-   "model_dice_vs_expert": 0.9527
+   "model_dice_vs_expert": 0.9528
   }
  ]
 }
