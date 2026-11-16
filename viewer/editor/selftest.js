@@ -104,6 +104,11 @@
     stroke(line);
     const parts = S.regions.filter((x) => x.name === tgt.name + "a" || x.name === tgt.name + "b");
     out.slice = { regions_added: S.regions.length - nS, pieces: parts.length, areas: parts.map((x) => Math.round(area(x))), whole: Math.round(aT), draft_left: !!S.draft };
+    if (parts.length === 2) {                                   // the two pieces share the very same curve along the cut
+      const key2 = (q) => q.x.toFixed(3) + "," + q.y.toFixed(3), setA = new Set(parts[0].paths[0].nodes.map(key2));
+      out.slice.shared_nodes = parts[1].paths[0].nodes.filter((q) => setA.has(key2(q))).length;
+      out.slice.area_lost_or_doubled = Math.round(Math.abs(area(parts[0]) + area(parts[1]) - aT));
+    }
     E.undo(); out.slice.undo_restores = S.regions.length === nS && !!E.region(drawn.id);
     stroke(line);
     // 12b2. one line right through both pieces splits both; a line that starts inside one piece only splits the other
@@ -146,6 +151,17 @@
     out.measure_csv = { rows: mc.rows, columns: mc.csv.split("\n")[0].trim() };
     E.setTool("ruler"); ev("pointerdown", { x: 100, y: 100 }); ev("pointermove", { x: 400, y: 500 }); ev("pointerup", { x: 400, y: 500 });
     out.ruler_px = S.ruler ? Math.round(G.dist(S.ruler.a, S.ruler.b)) : null;
+    // ruler clicks: two pins on one outline give its length both ways; a region, then another, gives the gap
+    const zoomOn = (c) => { S.view = { s: 3, x: 500 - c.x * 3, y: 350 - c.y * 3 }; E.draw(); };
+    const tap = (c) => { zoomOn(c); ev("pointerdown", c); ev("pointerup", c); };
+    const rr = S.regions.find((x) => x.source === "model" && x.paths.length === 1), pth = rr.paths[0];
+    tap(G.bez(G.cubic(pth, 0), 0.5)); const k1 = S.ruler && S.ruler.kind;
+    tap(G.bez(G.cubic(pth, Math.floor(pth.segs.length / 2)), 0.5));
+    out.ruler_outline = { first_click: k1, then: S.ruler && S.ruler.kind, both_ways_sum: S.ruler && Math.round(S.ruler.len1 + S.ruler.len2), perimeter: Math.round(E.measures(rr).perim) };
+    const two = S.regions.filter((x) => x.source === "model").slice(0, 2);
+    key("Escape"); tap(E.labelPoint(two[0])); const k2 = S.ruler && S.ruler.kind; tap(E.labelPoint(two[1]));
+    out.ruler_regions = { first_click: k2, then: S.ruler && S.ruler.kind, gap_px: S.ruler && S.ruler.a ? Math.round(G.dist(S.ruler.a, S.ruler.b)) : null };
+    E.fitView();
     E.setTool("edit");
     // 13. export
     const st = await (await fetch("/api/editor/settings")).json(), testDest = st.root + "/scratch/export-test";

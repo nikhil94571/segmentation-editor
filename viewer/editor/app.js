@@ -81,7 +81,7 @@
   const strip = (r) => { const o = Object.assign({}, r); delete o._p; delete o._m; delete o._c; return o; };
   const snapshot = () => JSON.stringify({ regions: S.regions.map(strip), draft: S.draft, selected: S.selected, counter: S.counter });
   function pushUndo() { S.undo.push(snapshot()); if (S.undo.length > 120) S.undo.shift(); S.redo = []; }
-  function restore(json) { closeLabel(); S.hole = null; const o = JSON.parse(json); S.regions = o.regions; S.draft = o.draft; S.selected = o.selected; S.counter = o.counter; S.stroke = null; S.drag = null; }
+  function restore(json) { closeLabel(); S.ruler = null; S.hole = null; const o = JSON.parse(json); S.regions = o.regions; S.draft = o.draft; S.selected = o.selected; S.counter = o.counter; S.stroke = null; S.drag = null; }
   function undo() { if (!S.undo.length) return; S.redo.push(snapshot()); restore(S.undo.pop()); refresh(true); }
   function redo() { if (!S.redo.length) return; S.undo.push(snapshot()); restore(S.redo.pop()); refresh(true); }
   let saveTimer = null, savePending = false;
@@ -197,22 +197,74 @@
       ctx.lineWidth = 3.4 * px; ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.stroke();
       ctx.lineWidth = 1.8 * px; ctx.strokeStyle = S.stroke.mode === "reroute" ? "#C2410C" : "#12307F"; ctx.stroke();
     }
-    if (S.ruler) {                                             // the ruler: a line with its length
-      const { a, b } = S.ruler, text = fmtLen(G.dist(a, b));
-      ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y);
-      ctx.lineWidth = 3.6 * px; ctx.strokeStyle = "rgba(255,255,255,.85)"; ctx.stroke();
-      ctx.lineWidth = 1.8 * px; ctx.strokeStyle = "#12142B"; ctx.stroke();
-      for (const q of [a, b]) { ctx.beginPath(); ctx.arc(q.x, q.y, 3.5 * px, 0, 7); ctx.fillStyle = "#12142B"; ctx.fill(); ctx.lineWidth = 1.2 * px; ctx.strokeStyle = "#fff"; ctx.stroke(); }
-      ctx.font = `600 ${12 * px}px sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-      const w = ctx.measureText(text).width + 12 * px, tx = b.x + 10 * px, ty = b.y - 14 * px;
-      ctx.fillStyle = "#12142B"; ctx.beginPath(); ctx.rect(tx, ty - 10 * px, w, 20 * px); ctx.fill();
-      ctx.fillStyle = "#fff"; ctx.fillText(text, tx + 6 * px, ty + 0.5 * px);
-    }
+    if (S.ruler) drawRuler(px);
     if (S.tool === "draw" && S.hover && !S.stroke) {      // where a reroute would start
       ctx.beginPath(); ctx.arc(S.hover.x, S.hover.y, 5 * px, 0, 7); ctx.fillStyle = "#C2410C"; ctx.fill();
       ctx.lineWidth = 1.5 * px; ctx.strokeStyle = "#fff"; ctx.stroke();
     }
   }
+  /* ---------------- ruler ---------------- */
+  const polyLen = (pts) => { let L = 0; for (let i = 1; i < pts.length; i++) L += G.dist(pts[i - 1], pts[i]); return L; };
+  const thin = (pts, max) => { const k = Math.max(1, Math.ceil(pts.length / max)); return pts.filter((_, i) => i % k === 0); };
+  /* A click with the ruler. On an outline: a pin; a second pin on the same outline measures the outline between
+     them, both ways round. Inside a region: its longest diameter; then inside another region: the gap between them. */
+  function rulerClick(p, prev) {
+    const h = hitBorder(p), r = hitRegion(p, true);
+    if (h && !(r && h.dist * S.view.s > 5)) {
+      const pin = { kind: "pin", rid: h.r.id, pi: h.pi, seg: h.seg, t: h.t, point: h.point };
+      if (prev && prev.kind === "pin" && prev.rid === pin.rid && prev.pi === pin.pi) S.ruler = arcBetween(h.r.paths[h.pi], prev, pin);
+      else if (prev && prev.kind === "pin") S.ruler = { kind: "line", a: prev.point, b: pin.point };
+      else S.ruler = pin;
+      return;
+    }
+    if (!r) { S.ruler = null; return; }
+    S.ruler = prev && prev.kind === "region" && prev.rid !== r.id && region(prev.rid) ? gapBetween(region(prev.rid), r) : longestAcross(r);
+  }
+  function arcBetween(path, a, b) {
+    const fl = G.flatten(path, 1.5), u = (q) => q.seg + q.t, ua = u(a), ub = u(b);
+    const fwd = (from, to) => (from < to ? fl.filter((q) => u(q) > from && u(q) < to) : fl.filter((q) => u(q) > from).concat(fl.filter((q) => u(q) < to)));
+    const pts1 = [a.point].concat(fwd(ua, ub), [b.point]), pts2 = [b.point].concat(fwd(ub, ua), [a.point]);
+    return { kind: "arc", a: a.point, b: b.point, pts1, pts2, len1: polyLen(pts1), len2: polyLen(pts2) };
+  }
+  function longestAcross(r) {
+    const pts = thin([].concat(...r.paths.map((q) => G.flatten(q, 3))), 320); let best = { d: -1 };
+    for (let i = 0; i < pts.length; i++) for (let j = i + 1; j < pts.length; j++) { const d = G.dist(pts[i], pts[j]); if (d > best.d) best = { d, a: pts[i], b: pts[j] }; }
+    return { kind: "region", rid: r.id, a: best.a, b: best.b };
+  }
+  function gapBetween(ra, rb) {
+    const A = thin([].concat(...ra.paths.map((q) => G.flatten(q, 2))), 600), B = thin([].concat(...rb.paths.map((q) => G.flatten(q, 2))), 600);
+    const over = A.find((q) => inside(rb, q)) || B.find((q) => inside(ra, q));
+    let best = { d: Infinity };
+    if (over) best = { d: 0, a: over, b: over };
+    else for (const q of A) for (const w of B) { const d = G.dist(q, w); if (d < best.d) best = { d, a: q, b: w }; }
+    return { kind: "gap", ra: ra.id, rb: rb.id, a: best.a, b: best.b };
+  }
+  function drawRuler(px) {
+    const R = S.ruler, DARK = "#12142B", ORANGE = "#D9480F", TEAL = "#0B7285";
+    const line = (pts, col, w, dash) => {
+      ctx.beginPath(); pts.forEach((q, i) => (i ? ctx.lineTo(q.x, q.y) : ctx.moveTo(q.x, q.y)));
+      ctx.setLineDash([]); ctx.lineJoin = "round"; ctx.lineWidth = (w + 2) * px; ctx.strokeStyle = "rgba(255,255,255,.9)"; ctx.stroke();
+      if (dash) ctx.setLineDash([6 * px, 4 * px]);
+      ctx.lineWidth = w * px; ctx.strokeStyle = col; ctx.stroke(); ctx.setLineDash([]);
+    };
+    const dot = (q, col) => { ctx.beginPath(); ctx.arc(q.x, q.y, 4.5 * px, 0, 7); ctx.fillStyle = col; ctx.fill(); ctx.lineWidth = 1.6 * px; ctx.strokeStyle = "#fff"; ctx.stroke(); };
+    const tag = (text, q, col) => {
+      ctx.font = `600 ${12 * px}px sans-serif`; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      const w = ctx.measureText(text).width + 12 * px, x = q.x + 9 * px, y = q.y - 13 * px;
+      ctx.fillStyle = col; ctx.beginPath(); ctx.rect(x, y - 10 * px, w, 20 * px); ctx.fill();
+      ctx.fillStyle = "#fff"; ctx.fillText(text, x + 6 * px, y + 0.5 * px);
+    };
+    const mid = (a, b) => ({ x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 });
+    const glow = (id) => { const r = region(id); if (!r) return; ctx.setLineDash([]); ctx.lineWidth = 3.2 * px; ctx.strokeStyle = DARK; ctx.stroke(regionPath(r)); };
+    if (R.kind === "pin") dot(R.point, ORANGE);
+    else if (R.kind === "arc") {
+      line(R.pts1, ORANGE, 3); line(R.pts2, TEAL, 3); dot(R.a, DARK); dot(R.b, DARK);
+      tag(fmtLen(R.len1), R.pts1[Math.floor(R.pts1.length / 2)], ORANGE); tag(fmtLen(R.len2), R.pts2[Math.floor(R.pts2.length / 2)], TEAL);
+    } else if (R.kind === "region") { glow(R.rid); line([R.a, R.b], DARK, 1.8, true); dot(R.a, DARK); dot(R.b, DARK); tag("Longest " + fmtLen(G.dist(R.a, R.b)), mid(R.a, R.b), DARK); }
+    else if (R.kind === "gap") { glow(R.ra); glow(R.rb); line([R.a, R.b], ORANGE, 2.2); dot(R.a, ORANGE); dot(R.b, ORANGE); tag("Gap " + fmtLen(G.dist(R.a, R.b)), mid(R.a, R.b), ORANGE); }
+    else { line([R.a, R.b], DARK, 1.8); dot(R.a, DARK); dot(R.b, DARK); if (G.dist(R.a, R.b) * S.view.s > 3) tag(fmtLen(G.dist(R.a, R.b)), R.b, DARK); }
+  }
+
   /* Where a region's class dot goes: a point inside it, as far from its outline as a coarse search finds. */
   function labelPoint(r) {
     if (r._c) return r._c;
@@ -301,7 +353,7 @@
     if (e.button === 1 || S.space) { closeLabel(); panning = { x: e.clientX, y: e.clientY, vx: S.view.x, vy: S.view.y }; return; }
     if (e.button !== 0) return;
     if (S.tool === "label") labelDown(p, e);
-    else { closeLabel(); if (S.tool === "edit") editDown(p, e); else if (S.tool === "ruler") { const q = snapPt(p); S.ruler = { a: q, b: q }; S.ruling = true; } else drawDown(p); }
+    else { closeLabel(); if (S.tool === "edit") editDown(p, e); else if (S.tool === "ruler") { const q = snapPt(p); S.rulerPrev = S.ruler; S.rulerDown = { x: e.clientX, y: e.clientY }; S.ruler = { kind: "line", a: q, b: q }; S.ruling = true; } else drawDown(p); }
     draw();
   });
   cv.addEventListener("pointermove", (e) => {
@@ -318,7 +370,11 @@
   });
   const up = (e) => {
     if (panning) { panning = null; return; }
-    if (S.ruling) { S.ruling = false; if (G.dist(S.ruler.a, S.ruler.b) * S.view.s < 3) S.ruler = null; draw(); return; }
+    if (S.ruling) {                                            // a drag is a straight distance; a press without a drag is a click
+      S.ruling = false;
+      if (Math.hypot(e.clientX - S.rulerDown.x, e.clientY - S.rulerDown.y) < 4) rulerClick(toImg(e), S.rulerPrev);
+      draw(); return;
+    }
     if (S.drag) { if (S.drag.moved) { const r = region(S.selected); if (r) r.edited = true; refresh(true); } else if (S.drag.pan === undefined) S.undo.pop(); S.drag = null; return; }
     if (S.stroke) strokeUp(toImg(e));
   };
@@ -431,7 +487,7 @@
     for (const r of S.regions) {
       if (inside(r, a) || inside(r, b)) continue;             // the line must go right through: in one side, out the other
       const oi = r.paths.reduce((bi, p, i) => (G.pathArea(p) > G.pathArea(r.paths[bi]) ? i : bi), 0);
-      const res = G.slice(r.paths[oi], line);
+      const res = G.slice(r.paths[oi], line, Math.min(6, Math.max(0.75, 2.5 / S.view.s)));
       if (res === "miss") continue;
       if (res === "many") { why = why || "To split a region, cross its outline once on the way in and once on the way out"; continue; }
       if (res === "small") { why = why || "That would leave a piece too small to be a region"; continue; }
@@ -443,9 +499,9 @@
     pushUndo();
     let first = null;
     for (const { r, res, holes } of cuts) {
-      const parts = res.rings.map((ring, k) => Object.assign(strip(r), {
+      const parts = res.paths.map((path, k) => Object.assign(strip(r), {
         id: r.id + "-" + (++S.counter), name: r.name + "ab"[k], label: null, t: null, edited: true, split: true,
-        paths: [G.fitClosed(ring, 1.5)].concat(holes.filter((h) => G.inPoly(h.nodes[0], ring))),
+        paths: [path].concat(holes.filter((h) => G.inPoly(h.nodes[0], G.flatten(path, 3)))),
       }));
       S.regions.splice(S.regions.indexOf(r), 1, ...parts);
       first = first || parts[0];
@@ -615,7 +671,6 @@
     const can = !!(show && r.label != null), sl = $("slider");   // the slider re-cuts a region from the model's output
     sl.disabled = !can; $("sliderReset").disabled = !can;
     if (can && !sliderArmed) sl.value = r.t;
-    $("sliderVal").textContent = can ? sliderText(r.t) : "no model outline";
     $("sbSlideRow").title = !can ? "Drawn, split and merged regions have no model outline to re-cut. Use Grow and Shrink."
       : (S.meta.has_prob ? "Re-cuts the region from the probability map: the edge moves most where the model was unsure."
         : "Moves the edge evenly in or out (this image has no probability map).") + " It replaces changes made to this region by hand.";
@@ -663,7 +718,6 @@
     const r = region(S.selected); if (!r || r.label == null) return;
     if (!sliderArmed) { pushUndo(); sliderArmed = true; }
     const seq = ++sliderSeq;
-    $("sliderVal").textContent = sliderText(t);
     try {
       const j = await api(`/api/editor/rethreshold?id=${encodeURIComponent(S.sid)}&label=${r.label}&t=${t}`);
       if (seq !== sliderSeq) return;
@@ -682,17 +736,18 @@
     const q = order();
     $("progress").textContent = S.regions.length ? String(S.regions.length) : "";
     $("confHead").textContent = S.regions.some((r) => r.meanProb != null) ? "Model confidence" : "";
+    $("confHead").hidden = !$("confHead").textContent;
     $("queue").innerHTML = q.length ? q.map((r) => {
       const c = r.meanProb, cls = c == null ? "" : c < 0.7 ? "low" : c < 0.85 ? "mid" : "";
       return `<button class="q-item ${r.id === S.selected ? "on" : ""}" data-id="${r.id}">
-        ${classOf(r) ? `<span class="q-dot" style="background:rgb(${classOf(r).color})" title="${esc(classOf(r).name)}"></span>` : ""}<span class="q-name">${esc(r.name)}</span>
+        <span class="q-dot" ${classOf(r) ? `style="background:rgb(${classOf(r).color})" title="${esc(classOf(r).name)}"` : ""}></span><span class="q-name">${esc(r.name)}</span>
         ${r.unsure ? '<span class="tag">unsure</span>' : ""}${r.source === "drawn" ? '<span class="tag">drawn</span>' : r.edited ? '<span class="tag">edited</span>' : ""}
         <span class="conf ${cls}">${c == null ? "" : Math.round(c * 100) + "%"}</span></button>`;
     }).join("") : `<p class="note" style="padding:6px 8px">${S.sid ? "No regions on this image. Use the Draw tool to add one." : "Nothing open."}</p>`;
     $("queue").querySelectorAll(".q-item").forEach((b) => (b.onclick = () => { const r = region(b.dataset.id); S.selected = r.id; S.hole = null; focusRegion(r); refresh(); }));
 
     const r = region(S.selected), d = $("detail");
-    if (!r) { d.innerHTML = S.sid && S.regions.length ? `<p class="note" style="margin:0">Select a region, or press <kbd>N</kbd> to start with the one the model was least sure about.</p>` : ""; return; }
+    if (!r) { d.innerHTML = ""; return; }
     if (selHole() != null) {
       d.innerHTML = `<div class="d-name">Hole in ${esc(r.name)}</div><div class="d-sub">${r.paths[selHole()].nodes.length} nodes · drag inside it to move it</div>
         <button class="btn danger d-del" id="delRegion">Delete hole <kbd>Del</kbd></button>`;
@@ -718,7 +773,7 @@
       ? `Drag a node to move it · drag the line to bend it · drag inside to move the whole region · double-click the line to add a node, a node to remove it · ${k("Del")} removes the region`
       : `Click a region to select it · drag empty space to pan · pinch or ${k(MOD)}-scroll to zoom`;
     else if (S.pickOp) h = `${S.pickOp.op === "merge" ? "Click the region to join with this one" : "Click the region to cut away from this one"} · ${k("Esc")} cancels`;
-    else if (S.tool === "ruler") h = `Drag to measure a distance${um() ? "" : ". Set the pixel size under Measure to read it in µm"} · ${k("Esc")} clears it`;
+    else if (S.tool === "ruler") h = `Drag for a straight distance · click two points on one outline for the length along it, both ways round · click a region for its longest diameter, then another region for the gap between them · ${k("Esc")} clears`;
     else if (S.tool === "label") h = `Click a region to give it a class · ${k("1")}–${k("9")} set the class of the selected region in any tool · ${k("U")} marks it unsure · hold ${k("X")} to hide the regions`;
     else if (S.draft) h = `Press the open end (orange) to continue · finish on the first node to close · ${k("Del")} removes the last node · ${k("Enter")} closes · ${k("Esc")} cancels`;
     else h = "Press, drag, release to draw a new region. Draw inside a region to cut a hole. Start and end on an outline to reroute that stretch. Draw right across a region to split it. Drag back along your line to un-draw.";
@@ -1100,6 +1155,6 @@
       if (store.get("seg-editor-welcomed") || q.has("selftest")) return;
       store.set("seg-editor-welcomed", "1"); tour();
     });
-  window.__editor = { S, draw, fitView, saveNow, modelRegions, toggleDone, showExport, runExport, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, setTool, step, undo, region, inside, setClass, openLabel, showClasses, shapeOp, serverShape, measures, renderBar };   // for selftest.js
+  window.__editor = { S, draw, fitView, saveNow, modelRegions, toggleDone, showExport, runExport, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, setTool, step, undo, region, inside, setClass, openLabel, showClasses, shapeOp, serverShape, measures, renderBar, labelPoint };   // for selftest.js
   if (new URLSearchParams(location.search).has("selftest")) { const sc = document.createElement("script"); sc.src = "/viewer/editor/selftest.js"; document.body.appendChild(sc); }
 })();

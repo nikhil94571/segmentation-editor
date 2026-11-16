@@ -460,6 +460,30 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .meas-scale .in { display: flex; align-items: center; gap: 8px; color: var(--ink-mute); }
 .meas-scale input { width: 88px; padding: 6px 9px; text-align: right; }
 .meas-act { margin: 0; }
+
+/* ---- third pass ---- */
+.sb-right { grid-template-columns: auto auto auto auto; gap: 2px 3px; align-items: center; justify-items: center; }
+.sb-box { display: flex; align-items: center; }
+.shape-bar .sb-box input { width: 44px; padding: 4px 5px; text-align: center; }
+.sb-reset { grid-column: 1; padding: 3px 6px; }
+.sb-reset:disabled { opacity: .4; }
+.sb-slide { grid-column: 2 / span 2; justify-self: stretch; display: flex; align-items: center; padding: 0 6px; }
+.sb-slide input[type=range] { flex: 1; width: 100%; min-width: 0; padding: 0; border: none; accent-color: var(--accent); }
+.sb-slide input[type=range]:disabled { opacity: .4; }
+.stage.has-bar .toast { bottom: 88px; }
+
+.side .sec, .side .detail, .side .measure { border-bottom: none; border-top: 1px solid var(--line); padding: 22px 18px; }
+.side .side-scroll > .sec:first-child { border-top: none; }
+.side .sec-h { display: flex; justify-content: center; text-align: center; margin-bottom: 16px; }
+.side .sec-regions { padding-bottom: 4px; }
+.side .sec-regions .sec-h { margin-bottom: 10px; }
+.q-colhead { text-align: right; font-size: var(--fs-micro); letter-spacing: .04em; color: var(--ink-faint); padding-right: 2px; }
+.side .queue { padding: 0 10px 14px; }
+.q-dot { background: transparent; }
+.side .meas-h { position: relative; margin-bottom: 0; }
+.side .measure .chev { position: absolute; right: 0; top: 50%; margin-top: -7px; }
+.meas-b { margin-top: 20px; }
+.meas-act .btn { justify-content: center; }
 </style>
 </head>
 <body>
@@ -493,7 +517,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
     <button class="tool on" id="toolEdit" title="Edit: move nodes, bend lines (V)"><svg viewBox="0 0 24 24"><path d="M5 3l14 8-6 2-2 6z"/></svg><kbd>V</kbd></button>
     <button class="tool" id="toolDraw" title="Draw: new regions, reroute outlines (P)"><svg viewBox="0 0 24 24"><path d="M4 20l1-5L16 4l4 4L9 19z"/><path d="M14 6l4 4"/></svg><kbd>P</kbd></button>
     <button class="tool" id="toolLabel" title="Label: say what a region is (L)"><svg viewBox="0 0 24 24"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.2"/></svg><kbd>L</kbd></button>
-    <button class="tool" id="toolRuler" title="Ruler: measure a distance (R)"><svg viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21z"/><path d="M7.5 12.5l2 2M10.5 9.5l2 2M13.5 6.5l2 2"/></svg><kbd>R</kbd></button>
+    <button class="tool" id="toolRuler" title="Ruler: distances, lengths along an outline, gaps between regions (R)"><svg viewBox="0 0 24 24"><path d="M3 17 17 3l4 4L7 21z"/><path d="M7.5 12.5l2 2M10.5 9.5l2 2M13.5 6.5l2 2"/></svg><kbd>R</kbd></button>
   </nav>
 
   <main class="stage" id="stage">
@@ -514,16 +538,12 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
       </div>
       <span class="sb-v"></span>
       <div class="sb-right">
-        <div class="sb-row">
-          <input type="number" id="sbDist" min="0" step="any" value="50" aria-label="Distance" title="Distance for Grow, Shrink and Band"><span class="sb-u" id="sbUnit">px</span>
-          <button class="sb" data-op="grow" type="button" title="Move the whole edge outward by this distance">Grow</button>
-          <button class="sb" data-op="shrink" type="button" title="Move the whole edge inward by this distance">Shrink</button>
-          <button class="sb" data-op="band" type="button" title="Add a new region: a band of this width around the outside">Band</button>
-        </div>
-        <div class="sb-row" id="sbSlideRow">
-          <span class="sb-end">Grow</span><input type="range" id="slider" min="0.05" max="0.95" step="0.01" value="0.5" aria-label="Grow or shrink from the model"><span class="sb-end">Shrink</span>
-          <b id="sliderVal"></b><button class="link" id="sliderReset" type="button">Reset</button>
-        </div>
+        <span class="sb-box"><input type="number" id="sbDist" min="0" max="999" step="any" value="50" aria-label="Distance" title="Distance for Grow, Shrink and Band"><span class="sb-u" id="sbUnit">px</span></span>
+        <button class="sb" data-op="grow" type="button" title="Move the whole edge outward by this distance">Grow</button>
+        <button class="sb" data-op="shrink" type="button" title="Move the whole edge inward by this distance">Shrink</button>
+        <button class="sb" data-op="band" type="button" title="Add a new region: a band of this width around the outside">Band</button>
+        <button class="link sb-reset" id="sliderReset" type="button" title="Put the region back to the model's own outline">Reset</button>
+        <span class="sb-slide" id="sbSlideRow"><input type="range" id="slider" min="0.05" max="0.95" step="0.01" value="0.5" aria-label="Grow or shrink from the model"></span>
       </div>
     </div>
     <div class="toast" id="toast"></div>
@@ -537,8 +557,9 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
       <div class="row"><label class="check"><input type="checkbox" id="showModel"> Model's original outline <kbd>M</kbd></label></div>
       <div class="row"><label class="check" id="heatRow"><input type="checkbox" id="showHeat"> Probability heatmap <kbd>H</kbd></label></div>
     </div>
-    <div class="sec" style="padding-bottom:8px;border-bottom:none">
-      <div class="sec-h"><span>Regions <span class="count" id="progress"></span></span><span id="confHead"></span></div>
+    <div class="sec sec-regions">
+      <div class="sec-h">Regions<span id="progress" hidden></span></div>
+      <div class="q-colhead" id="confHead" hidden></div>
     </div>
     <div class="queue" id="queue"></div>
     <div class="detail" id="detail"></div>

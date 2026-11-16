@@ -347,20 +347,25 @@
     return inside;
   };
   /* Slice: cut a closed path in two along a stroke that crosses its outline exactly twice.
-     Returns { rings: [pointsA, pointsB] } (each ring closed along the cut), or "miss", "many" or "small". */
-  G.slice = (path, stroke) => {
-    const ring = G.flatten(path, 2).map((q) => P(q.x, q.y)), x = G.crossings(ring, stroke), n = ring.length;
+     The outline keeps its own curves (it only gains a node at each crossing) and both pieces get the very
+     same curve along the cut, so they meet edge to edge with no gap and no overlap.
+     Returns { paths: [pathA, pathB] }, or "miss", "many" or "small". */
+  G.slice = (path, stroke, tol) => {
+    const ring = G.flatten(path, 2).map((q) => P(q.x, q.y)), x = G.crossings(ring, stroke);
     if (x.length !== 2) return x.length < 2 ? "miss" : "many";
-    const [a, b] = x, cut = stroke.slice(a.si + 1, b.si + 1).map((q) => P(q.x, q.y));
-    const walk = (from, to) => {                              // ring points after `from`, up to and including the one before `to`
-      const o = [];
-      if (from.ri === to.ri && from.ru < to.ru) return o;
-      for (let i = (from.ri + 1) % n; ; i = (i + 1) % n) { o.push(ring[i]); if (i === to.ri) break; }
-      return o;
-    };
-    const rings = [[a.p].concat(walk(a, b), [b.p], cut.slice().reverse()), [b.p].concat(walk(b, a), [a.p], cut)];
-    if (rings.some((r) => Math.abs(G.polyArea(r)) < 30)) return "small";
-    return { rings };
+    const [a, b] = x, p = JSON.parse(JSON.stringify(path));
+    const na = G.nearest(p, a.p); let ia = G.insertNode(p, na.seg, na.t);
+    const nb = G.nearest(p, b.p), ib = G.insertNode(p, nb.seg, nb.t);
+    if (ib <= ia) ia++;
+    const n = p.nodes.length, mid = stroke.slice(a.si + 1, b.si + 1).map((q) => P(q.x, q.y));
+    const cut = G.fitCurve([p.nodes[ia]].concat(mid, [p.nodes[ib]]), (tol || 1.5) * (tol || 1.5));   // a -> b
+    if (!cut.length) return "miss";
+    cut[0][0] = p.nodes[ia]; cut[cut.length - 1][3] = p.nodes[ib];
+    const arc = (from, to) => { const o = []; for (let i = from; i !== to; i = (i + 1) % n) o.push(G.cubic(p, i)); return o; };
+    const paths = [G.pathFromCubics(arc(ib, ia).concat(cut), true),
+                   G.pathFromCubics(arc(ia, ib).concat(cut.slice().reverse().map(G.reverseBez)), true)];
+    if (paths.some((q) => G.pathArea(q) < 30)) return "small";
+    return { paths };
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = G; else root.G = G;
