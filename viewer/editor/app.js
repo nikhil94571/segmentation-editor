@@ -707,8 +707,8 @@
         ${tile("Area", fmtArea(m.area))}${tile("Perimeter", fmtLen(m.perim))}${tile("Longest", fmtLen(m.feret))}${tile("Circularity", m.circ.toFixed(2))}</div></div>` : ""}
       ${S.regions.length ? `<table class="meas-t"><colgroup><col class="c1"><col class="c2"><col class="c3"><col class="c4"></colgroup>
         <thead><tr><th>Class</th><th>Area <small>${unitOf(top)}</small></th><th title="Share of all the regions">Regions</th><th title="Share of the whole image">Image</th></tr></thead><tbody>
-        ${rows.map(([c, a]) => `<tr><td><span class="sw ${c ? "" : "none"}" ${c ? `style="background:rgb(${c.color})"` : ""}></span><span class="cn">${c ? esc(c.name) : "No class"}</span></td><td>${num(fmtArea(a, top))}</td><td>${pc(a, measured)}</td><td>${pc(a, img)}</td></tr>`).join("")}
-        ${excluded ? `<tr class="ex"><td><span class="sw q"></span><span class="cn">Left out</span></td><td>${num(fmtArea(excluded, top))}</td><td>–</td><td>–</td></tr>` : ""}
+        ${rows.map(([c, a]) => `<tr><td><span class="cl"><span class="sw ${c ? "" : "none"}" ${c ? `style="background:rgb(${c.color})"` : ""}></span><span class="cn">${c ? esc(c.name) : "No class"}</span></span></td><td>${num(fmtArea(a, top))}</td><td>${pc(a, measured)}</td><td>${pc(a, img)}</td></tr>`).join("")}
+        ${excluded ? `<tr class="ex"><td><span class="cl"><span class="sw q"></span><span class="cn">Left out</span></span></td><td>${num(fmtArea(excluded, top))}</td><td>–</td><td>–</td></tr>` : ""}
         <tr class="tot"><td>Total</td><td>${num(fmtArea(measured, top))}</td><td>100%</td><td>${pc(measured, img)}</td></tr></tbody></table>` : `<p class="note">No regions to measure.</p>`}
       <div class="meas-foot"><label class="px-box" title="The size of one pixel, in micrometres. With it set, measurements are in µm and mm."><input type="number" id="pxUm" min="0" step="any" placeholder="Pixel size" aria-label="Pixel size" value="${um() || ""}"><span>µm/px</span></label>
         <button class="btn" id="measCsv" type="button" title="One table of every region in this library">Download CSV</button></div>`;
