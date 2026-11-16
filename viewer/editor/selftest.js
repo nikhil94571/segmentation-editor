@@ -84,7 +84,7 @@
     E.setTool("edit"); S.selected = null; E.refresh();
     S.view = { s: 6, x: 400 - c0.x * 6, y: 300 - c0.y * 6 };
     ev("pointerdown", c0); ev("pointerup", c0);
-    const picked = { hole_selected: E.selHole() != null, region_selected: S.selected === host.id, panel: document.querySelector("#detail .d-name").textContent };
+    const picked = { hole_selected: E.selHole() != null, region_selected: S.selected === host.id, panel: document.getElementById("hint").textContent.slice(0, 13) };
     key("Delete"); S.view = zoomSave;
     const h3 = E.region(host.id);
     out.hole_select_delete = Object.assign(picked, { region_still_there: !!h3, paths_back_to: [nP, h3 ? h3.paths.length : -1], centre_shaded_again: !!h3 && E.inside(h3, c0) });
@@ -114,7 +114,25 @@
     // 12b2. one line right through both pieces splits both; a line that starts inside one piece only splits the other
     const cxS = (bbS.x0 + bbS.x1) / 2, vert = [], half = [], n2 = S.regions.length;
     for (let y = bbS.y0 - 45; y <= bbS.y1 + 45; y += 9) vert.push({ x: cxS, y });
-    stroke(vert); out.slice_through_two = { regions_added: S.regions.length - n2 }; E.undo();
+    stroke(vert); out.slice_through_two = { regions_added: S.regions.length - n2 };
+    {                                                          // the four pieces meet at one shared node; moving it moves all four
+      const four = S.regions.filter((x) => x.name.startsWith(tgt.name) && x.name.length === tgt.name.length + 2), sumBefore = four.reduce((t, x) => t + area(x), 0);
+      const count = new Map(); for (const x of four) for (const q of x.paths[0].nodes) { const k = q.x.toFixed(2) + "," + q.y.toFixed(2); count.set(k, (count.get(k) || 0) + 1); }
+      const hub = [...count.entries()].sort((u, v) => v[1] - u[1])[0], hp = { x: +hub[0].split(",")[0], y: +hub[0].split(",")[1] };
+      E.setTool("edit"); S.selected = four[0].id; E.refresh();
+      const zs = Object.assign({}, S.view); S.view = { s: 3, x: 500 - hp.x * 3, y: 350 - hp.y * 3 };
+      ev("pointerdown", hp); ev("pointermove", { x: hp.x + 12, y: hp.y + 7 }); ev("pointerup", { x: hp.x + 12, y: hp.y + 7 });
+      const moved = four.filter((x) => x.paths[0].nodes.some((q) => Math.abs(q.x - hp.x - 12) < 0.01 && Math.abs(q.y - hp.y - 7) < 0.01)).length;
+      out.shared_node = { pieces: four.length, regions_at_the_node: hub[1], moved_together: moved, area_change: Math.round(Math.abs(four.reduce((t, x) => t + area(x), 0) - sumBefore)) };
+      // bending a shared curve bends it in both regions: the total area stays the same
+      const A0 = four[0], seg = A0.paths[0].segs.findIndex((_, i) => { const c = G.cubic(A0.paths[0], i); return four.some((x) => x !== A0 && x.paths[0].segs.some((__, j) => { const d = G.cubic(x.paths[0], j); return Math.abs(c[0].x - d[3].x) < 0.05 && Math.abs(c[0].y - d[3].y) < 0.05 && Math.abs(c[3].x - d[0].x) < 0.05 && Math.abs(c[3].y - d[0].y) < 0.05; })); });
+      const mp = G.bez(G.cubic(A0.paths[0], seg), 0.5), sum1 = four.reduce((t, x) => t + area(x), 0), aA = area(A0);
+      S.view = { s: 3, x: 500 - mp.x * 3, y: 350 - mp.y * 3 };
+      ev("pointerdown", mp); ev("pointermove", { x: mp.x + 9, y: mp.y + 9 }); ev("pointerup", { x: mp.x + 9, y: mp.y + 9 });
+      out.shared_bend = { own_area_changed: Math.round(Math.abs(area(A0) - aA)) > 0, total_area_change: Math.round(Math.abs(four.reduce((t, x) => t + area(x), 0) - sum1)) };
+      S.view = zs; E.undo(); E.undo(); E.setTool("draw");
+    }
+    E.undo();
     for (let y = cyS - (cyS - bbS.y0) / 2; y <= bbS.y1 + 45; y += 9) half.push({ x: cxS, y });
     stroke(half); out.slice_starting_inside_one = { regions_added: S.regions.length - n2, draft_left: !!S.draft }; E.undo();
     // 12c. label: a number key gives the selected region a class, U marks it unsure, the menu opens on a click
@@ -141,7 +159,10 @@
     out.reshape_offset = { start: Math.round(a1), grown_10: Math.round(a2), shrunk_back: Math.round(a3) };
     const nB = S.regions.length; await E.shapeOp("band");
     const band = S.regions[S.regions.length - 1];
-    out.reshape_band = { added: S.regions.length - nB, band_area: Math.round(E.measures(band).area), selected: S.selected === band.id };
+    out.reshape_band = { added: S.regions.length - nB, band_area: Math.round(E.measures(band).area), expected_about: Math.round(E.measures(rm).perim * 10 + Math.PI * 100), selected: S.selected === band.id };
+    E.undo(); S.selected = rm.id; E.refresh(); document.getElementById("sbDist").value = 1; await E.shapeOp("band");
+    out.reshape_band_1px = { added: S.regions.length - nB, area: Math.round(E.measures(S.regions[S.regions.length - 1]).area), expected_about: Math.round(E.measures(rm).perim) };
+    document.getElementById("sbDist").value = 10;
     E.undo();
     const pa = S.regions.find((x) => x.name === tgt.name + "a"), pb = S.regions.find((x) => x.name === tgt.name + "b"), sum = area(pa) + area(pb), nM = S.regions.length;
     await E.serverShape("merge", pa, pb);
@@ -188,7 +209,7 @@
     out.second_click_opens = { index: S.caseIndex, expected: target, dialog_closed: !document.getElementById("openModal").classList.contains("show") };
     // 16. done mark: marks this image and stays on it
     const dIdx = S.caseIndex; await E.toggleDone(); await wait(600);
-    out.done_mark = { was_marked: S.lib.cases[dIdx].done === true, stayed_on: [dIdx, S.caseIndex], button_now: document.getElementById("doneLabel").textContent, in_side_panel: !!document.querySelector(".side #doneBtn") };
+    out.done_mark = { was_marked: S.lib.cases[dIdx].done === true, stayed_on: [dIdx, S.caseIndex], button_on: document.getElementById("doneBtn").classList.contains("on"), buttons_in_foot: document.querySelectorAll(".side-foot .btn").length };
     await E.toggleDone(); await wait(400);
     // 17. export the whole library to a chosen folder
     let seen = []; const watch = setInterval(() => { const e = document.getElementById("exPct"); if (e) seen.push(e.textContent); }, 200);

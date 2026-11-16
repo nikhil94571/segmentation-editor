@@ -344,6 +344,31 @@
     return best;
   }
 
+  /* ---------------- shared boundaries ----------------
+     Pieces made by slicing share nodes and curves. An edit to a shared node or curve is made in every region
+     that has it, so neighbours keep meeting edge to edge. */
+  const SAME = 0.05;                                           // image px: closer than this is the same point
+  const same = (a, b) => Math.abs(a.x - b.x) < SAME && Math.abs(a.y - b.y) < SAME;
+  function twinNodes(r, pi, ni) {
+    const n = r.paths[pi].nodes[ni], out = [];
+    for (const r2 of S.regions) r2.paths.forEach((path, pi2) => path.nodes.forEach((m, ni2) => {
+      if ((r2 !== r || pi2 !== pi || ni2 !== ni) && same(n, m)) out.push({ r: r2, pi: pi2, ni: ni2 });
+    }));
+    return out;
+  }
+  function twinSegs(r, pi, seg) {
+    const c = G.cubic(r.paths[pi], seg), out = [];
+    for (const r2 of S.regions) {
+      if (r2 === r) continue;
+      r2.paths.forEach((path, pi2) => { for (let i = 0; i < path.segs.length; i++) {
+        const d = G.cubic(path, i);
+        if (same(c[0], d[0]) && same(c[1], d[1]) && same(c[2], d[2]) && same(c[3], d[3])) out.push({ r: r2, pi: pi2, seg: i, rev: false });
+        else if (same(c[0], d[3]) && same(c[1], d[2]) && same(c[2], d[1]) && same(c[3], d[0])) out.push({ r: r2, pi: pi2, seg: i, rev: true });
+      } });
+    }
+    return out;
+  }
+
   /* ---------------- pointer ---------------- */
   let panning = null;
   cv.addEventListener("pointerdown", (e) => {
@@ -390,9 +415,15 @@
     if (S.tool !== "edit") return;
     const r = region(S.selected), p = toImg(e); if (!r) return;
     const n = hitNode(r, p);
+    if (n && twinNodes(r, n.pi, n.ni).length) { toast("This node is shared with a neighbouring region, so it stays"); return; }
     if (n) { pushUndo(); if (G.removeNode(r.paths[n.pi], n.ni)) { r.edited = true; refresh(true); } else { S.undo.pop(); toast("A shape needs at least two nodes"); } return; }
     const l = hitLine(r, p);
-    if (l) { pushUndo(); G.insertNode(r.paths[l.pi], l.seg, l.t); r.edited = true; refresh(true); }
+    if (l) {                                                   // a new node on a shared curve goes into the neighbour too
+      const tw = twinSegs(r, l.pi, l.seg);
+      pushUndo(); const k = G.insertNode(r.paths[l.pi], l.seg, l.t), q = r.paths[l.pi].nodes[k];
+      for (const w of tw) { const path = w.r.paths[w.pi], k2 = G.insertNode(path, w.seg, w.rev ? 1 - l.t : l.t); path.nodes[k2] = { x: q.x, y: q.y }; }
+      r.edited = true; refresh(true);
+    }
   });
 
   /* Edit tool: nodes move, lines bend, empty space pans. */
@@ -406,9 +437,9 @@
     const sel = region(S.selected);
     if (sel) {
       const n = hitNode(sel, p);
-      if (n) { pushUndo(); S.drag = { kind: "node", pi: n.pi, ni: n.ni, last: p, moved: false }; return; }
+      if (n) { pushUndo(); S.drag = { kind: "node", pi: n.pi, ni: n.ni, last: p, moved: false, twins: twinNodes(sel, n.pi, n.ni) }; return; }
       const l = hitLine(sel, p);
-      if (l) { pushUndo(); S.drag = { kind: "bend", pi: l.pi, seg: l.seg, t: l.t, last: p, moved: false }; return; }
+      if (l) { pushUndo(); S.drag = { kind: "bend", pi: l.pi, seg: l.seg, t: l.t, last: p, moved: false, twins: twinSegs(sel, l.pi, l.seg) }; return; }
     }
     const h = hitHole(p);                                      // inside a hole counts as the hole, even right next to its edge
     const r = hitRegion(p, true) || (h ? null : hitRegion(p));
@@ -427,12 +458,13 @@
   function dragMove(p) {
     const r = region(S.selected), d = S.drag; if (!r) return;
     const delta = G.sub(p, d.last); if (!delta.x && !delta.y) return;
-    if (d.kind === "node") G.moveNode(r.paths[d.pi], d.ni, delta);
-    else if (d.kind === "bend") G.bendSeg(r.paths[d.pi], d.seg, d.t, delta);
+    if (d.kind === "node") { G.moveNode(r.paths[d.pi], d.ni, delta); for (const w of d.twins) G.moveNode(w.r.paths[w.pi], w.ni, delta); }
+    else if (d.kind === "bend") { G.bendSeg(r.paths[d.pi], d.seg, d.t, delta); for (const w of d.twins) G.bendSeg(w.r.paths[w.pi], w.seg, w.rev ? 1 - d.t : d.t, delta); }
     else for (const path of (d.kind === "movepath" ? [r.paths[d.pi]] : r.paths)) {   // move the whole region (or one hole)
       path.nodes = path.nodes.map((n) => G.add(n, delta));
       path.segs = path.segs.map((sg) => ({ c1: G.add(sg.c1, delta), c2: G.add(sg.c2, delta) }));
     }
+    for (const w of d.twins || []) { w.r._p = null; w.r._c = null; w.r.edited = true; }
     d.last = p; d.moved = true; r._p = null; r._c = null; draw();
   }
 
@@ -497,17 +529,29 @@
     }
     if (!cuts.length) { if (why) { toast(why); draw(); return true; } return false; }
     pushUndo();
-    let first = null;
-    for (const { r, res, holes } of cuts) {
+    let first = null, done = 0;
+    const tolS = Math.min(6, Math.max(0.75, 2.5 / S.view.s));
+    for (const { r, holes } of cuts) {
+      const oi = r.paths.reduce((bi, p, i) => (G.pathArea(p) > G.pathArea(r.paths[bi]) ? i : bi), 0);
+      const res = G.slice(r.paths[oi], line, tolS);             // again, now that earlier cuts may have added a node here
+      if (typeof res === "string") continue;
       const parts = res.paths.map((path, k) => Object.assign(strip(r), {
         id: r.id + "-" + (++S.counter), name: r.name + "ab"[k], label: null, t: null, edited: true, split: true,
         paths: [path].concat(holes.filter((h) => G.inPoly(h.nodes[0], G.flatten(path, 3)))),
       }));
       S.regions.splice(S.regions.indexOf(r), 1, ...parts);
-      first = first || parts[0];
+      for (const pt of res.ends) for (const r2 of S.regions) {  // neighbours that share this outline get the same node
+        if (parts.includes(r2)) continue;
+        for (const path of r2.paths) {
+          const n = G.nearest(path, pt);
+          if (n && n.dist < SAME && !path.nodes.some((m) => same(m, pt))) { const k = G.insertNode(path, n.seg, n.t); path.nodes[k] = { x: pt.x, y: pt.y }; }
+        }
+      }
+      first = first || parts[0]; done++;
     }
+    if (!first) { S.undo.pop(); draw(); return true; }
     S.selected = first.id; S.hole = null; refresh(true);
-    toast(cuts.length === 1 ? "Split " + cuts[0].r.name + " in two" : "Split " + cuts.length + " regions");
+    toast(done === 1 ? "Split " + cuts[0].r.name + " in two" : "Split " + done + " regions");
     return true;
   }
   function finishDraft(snap) {
@@ -669,7 +713,7 @@
     $("sbUnit").textContent = um() ? "µm" : "px";
     bar.querySelectorAll("[data-op]").forEach((b) => b.classList.toggle("on", !!S.pickOp && S.pickOp.op === b.dataset.op));
     const can = !!(show && r.label != null), sl = $("slider");   // the slider re-cuts a region from the model's output
-    sl.disabled = !can; $("sliderReset").disabled = !can;
+    sl.disabled = !can; $("sliderReset").disabled = !can; $("sbInfo").hidden = can;
     if (can && !sliderArmed) sl.value = r.t;
     $("sbSlideRow").title = !can ? "Drawn, split and merged regions have no model outline to re-cut. Use Grow and Shrink."
       : (S.meta.has_prob ? "Re-cuts the region from the probability map: the edge moves most where the model was unsure."
@@ -700,8 +744,12 @@
   async function serverShape(op, r, other, dist) {
     try {
       const j = await api("/api/editor/reshape", { id: S.sid, op, a: ringsOf(r), b: other ? ringsOf(other) : null, dist: dist || 0 });
-      const paths = fitRings(j.rings);
+      let paths = j.rings.map((ring) => G.fitClosed(pts(ring), 0.35)).filter((q) => q.nodes.length >= 1 && q.segs.length >= 1);
       if (!paths.length) throw new Error("Nothing would be left");
+      if (op === "band") {                                     // the band's inner edge is the region's own outline
+        const fl = r.paths.map((q) => G.flatten(q, 3));
+        paths = paths.concat(JSON.parse(JSON.stringify(r.paths.filter((_, i) => !fl.some((g, k) => k !== i && G.inPoly(fl[i][0], g))))));
+      }
       pushUndo();
       if (op === "band") {
         S.counter++;
@@ -746,23 +794,8 @@
     }).join("") : `<p class="note" style="padding:6px 8px">${S.sid ? "No regions on this image. Use the Draw tool to add one." : "Nothing open."}</p>`;
     $("queue").querySelectorAll(".q-item").forEach((b) => (b.onclick = () => { const r = region(b.dataset.id); S.selected = r.id; S.hole = null; focusRegion(r); refresh(); }));
 
-    const r = region(S.selected), d = $("detail");
-    if (!r) { d.innerHTML = ""; return; }
-    if (selHole() != null) {
-      d.innerHTML = `<div class="d-name">Hole in ${esc(r.name)}</div><div class="d-sub">${r.paths[selHole()].nodes.length} nodes · drag inside it to move it</div>
-        <button class="btn danger d-del" id="delRegion">Delete hole <kbd>Del</kbd></button>`;
-      $("delRegion").onclick = deleteSelected; return;
-    }
-    const c = classOf(r);
-    const sub = r.meanProb == null ? (r.source === "drawn" ? "drawn by hand" : "") : `${Math.round(r.meanProb * 100)}% confidence`;
-    d.innerHTML = `
-      <div class="d-head"><span class="d-name">${esc(r.name)}</span><span class="d-conf">${sub}</span></div>
-      <button class="d-classbtn" id="dClass" type="button"><span class="sw ${c ? "" : "none"}" ${c ? `style="background:rgb(${c.color})"` : ""}></span><span class="t">${c ? esc(c.name) : "Add a class"}${r.unsure ? " · unsure" : ""}</span><kbd>L</kbd></button>
-      ${r.note ? `<div class="d-notetext">${esc(r.note)}</div>` : ""}
-      <div class="nav3"><button class="btn danger" id="delRegion">Delete <kbd>Del</kbd></button><button class="btn" id="navPrev">Previous</button><button class="btn" id="navNext">Next <kbd>N</kbd></button></div>`;
-    $("dClass").onclick = () => openLabel(r);
-    $("delRegion").onclick = deleteSelected;
-    $("navPrev").onclick = () => step(-1); $("navNext").onclick = () => step(1);
+    $("delRegion").disabled = !region(S.selected);
+    $("navPrev").disabled = $("navNext").disabled = !S.regions.length;
   }
   function renderHint() {
     const k = (s) => `<kbd>${s}</kbd>`;
@@ -791,7 +824,7 @@
     $("prevCase").disabled = S.caseIndex <= 0; $("nextCase").disabled = S.caseIndex >= n - 1;
     const cur = S.lib && S.lib.cases[S.caseIndex];
     $("doneBtn").hidden = !cur; $("doneBtn").classList.toggle("on", !!(cur && cur.done));
-    $("doneLabel").textContent = cur && cur.done ? "Done" : "Mark done";
+    $("doneBtn").title = cur && cur.done ? "Marked as done. Click to take the mark off (D)" : "Mark this image as done (D)";
     $("prevCase").title = S.lib ? `Previous image in ${S.lib.name} ( [ )` : ""; $("nextCase").title = S.lib ? `Next image in ${S.lib.name} ( ] )` : "";
   }
   /* Make a library the current one and open one of its images. */
@@ -1060,7 +1093,9 @@
   $("open").onclick = showOpen; $("openEmpty").onclick = showOpen; $("export").onclick = () => showExport();
   $("undo").onclick = undo; $("redo").onclick = redo;
   $("zoomIn").onclick = () => zoomAt(1.25); $("zoomOut").onclick = () => zoomAt(0.8); $("fit").onclick = fitView;
+  $("delRegion").onclick = deleteSelected; $("navPrev").onclick = () => step(-1); $("navNext").onclick = () => step(1);
   $("toolEdit").onclick = () => setTool("edit"); $("toolDraw").onclick = () => setTool("draw"); $("toolLabel").onclick = () => setTool("label"); $("toolRuler").onclick = () => setTool("ruler");
+  $("sbInfo").onclick = () => toast("The slider re-cuts a region from the model's output. This region was drawn, split or merged, so use Grow and Shrink.");
   $("slider").oninput = (e) => slide(+e.target.value);
   $("slider").onchange = () => { sliderArmed = false; setTimeout(() => refresh(true), 250); };
   $("sliderReset").onclick = () => { sliderArmed = false; slide(S.meta.threshold).then(() => { sliderArmed = false; refresh(true); }); };

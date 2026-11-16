@@ -354,9 +354,12 @@
     const ring = G.flatten(path, 2).map((q) => P(q.x, q.y)), x = G.crossings(ring, stroke);
     if (x.length !== 2) return x.length < 2 ? "miss" : "many";
     const [a, b] = x, p = JSON.parse(JSON.stringify(path));
-    const na = G.nearest(p, a.p); let ia = G.insertNode(p, na.seg, na.t);
-    const nb = G.nearest(p, b.p), ib = G.insertNode(p, nb.seg, nb.t);
-    if (ib <= ia) ia++;
+    const nodeNear = (pt) => p.nodes.findIndex((m) => dist(m, pt) < 0.75);   // a neighbour's cut may already end here
+    let ia = nodeNear(a.p);
+    if (ia < 0) { const na = G.nearest(p, a.p); ia = G.insertNode(p, na.seg, na.t); }
+    let ib = nodeNear(b.p);
+    if (ib < 0) { const nb = G.nearest(p, b.p); ib = G.insertNode(p, nb.seg, nb.t); if (ib <= ia) ia++; }
+    if (ia === ib) return "miss";
     const n = p.nodes.length, mid = stroke.slice(a.si + 1, b.si + 1).map((q) => P(q.x, q.y));
     const cut = G.fitCurve([p.nodes[ia]].concat(mid, [p.nodes[ib]]), (tol || 1.5) * (tol || 1.5));   // a -> b
     if (!cut.length) return "miss";
@@ -365,7 +368,7 @@
     const paths = [G.pathFromCubics(arc(ib, ia).concat(cut), true),
                    G.pathFromCubics(arc(ia, ib).concat(cut.slice().reverse().map(G.reverseBez)), true)];
     if (paths.some((q) => G.pathArea(q) < 30)) return "small";
-    return { paths };
+    return { paths, ends: [P(p.nodes[ia].x, p.nodes[ia].y), P(p.nodes[ib].x, p.nodes[ib].y)] };
   };
 
   if (typeof module !== "undefined" && module.exports) module.exports = G; else root.G = G;

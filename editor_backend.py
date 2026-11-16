@@ -737,47 +737,56 @@ def set_scale(lid, um):
 
 
 def reshape(sid, op, a, b=None, dist=0.0):
-    """Whole-region edits worked out on pixel masks: merge, subtract, offset (grow or shrink evenly) and band.
-    a, b: a region as a list of rings [[x, y], ...]; dist in image pixels. -> the outlines of the result."""
+    """Whole-region edits as exact polygon geometry: merge, subtract, offset (grow or shrink evenly) and band.
+    a, b: a region as a list of rings [[x, y], ...]; dist in image pixels. -> the outlines of the result.
+    For a band only the outer edge comes back: its inner edge is the region's own outline."""
+    from shapely.geometry import Polygon, box
     meta = json.loads((_sdir(sid) / "meta.json").read_text())
-    H, W = meta["height"], meta["width"]
     dist = float(dist or 0)
     if abs(dist) > 4000:
         raise ValueError("That distance is larger than the image.")
-    ra = [np.asarray(r, float) for r in (a or []) if len(r) >= 3]
-    rb = [np.asarray(r, float) for r in (b or []) if len(r) >= 3]
-    if not ra or (op in ("merge", "subtract") and not rb):
+
+    def geom(rings):                                     # even-odd, as the editor draws it
+        g = None
+        for r in rings or []:
+            if len(r) < 3:
+                continue
+            pg = Polygon(r)
+            if not pg.is_valid:
+                pg = pg.buffer(0)
+            g = pg if g is None else g.symmetric_difference(pg)
+        return g
+
+    def polys(g):
+        return [q for q in getattr(g, "geoms", [g]) if q.geom_type == "Polygon" and q.area >= 4]
+
+    A, B = geom(a), geom(b)
+    if A is None or (op in ("merge", "subtract") and B is None):
         raise ValueError("Select a region first.")
-    pts, pad = np.vstack(ra + rb), int(abs(dist)) + 8
-    x0, y0 = max(int(pts[:, 0].min()) - pad, 0), max(int(pts[:, 1].min()) - pad, 0)
-    x1, y1 = min(int(pts[:, 0].max()) + pad + 1, W), min(int(pts[:, 1].max()) + pad + 1, H)
-    shp, off = (y1 - y0, x1 - x0), np.array([x0, y0])
-
-    def mask(rings):
-        m = np.zeros(shp, bool)
-        for r in rings:
-            m ^= _fill(r - off, shp)                   # even-odd, as the editor draws it
-        return m
-
-    A = mask(ra)
     if op == "merge":
-        B = mask(rb)
-        bridge = ndi.binary_dilation(A, iterations=2) & ndi.binary_dilation(B, iterations=2)   # close a hairline gap
-        out = A | B | bridge
-        if label(out, connectivity=2).max() > 1:
+        out = A.union(B)
+        if len(polys(out)) > 1:                          # close a hairline gap between neighbours
+            out = out.buffer(0.75, join_style="mitre").buffer(-0.75, join_style="mitre")
+        if len(polys(out)) > 1:
             raise ValueError("Those two regions do not touch, so they cannot be merged into one.")
     elif op == "subtract":
-        out = A & ~mask(rb)
+        out = A.difference(B)
     elif op == "offset":
-        out = (ndi.distance_transform_edt(~A) <= dist) if dist >= 0 else (ndi.distance_transform_edt(A) > -dist)
+        out = A.buffer(dist, quad_segs=24)
     elif op == "band":
-        out = (ndi.distance_transform_edt(~A) <= abs(dist)) & ~A
+        from shapely.ops import unary_union
+        out = unary_union([Polygon(q.exterior) for q in polys(A)]).buffer(abs(dist), quad_segs=24)
     else:
         raise ValueError("Unknown shape change.")
-    out = remove_small_objects(out, max_size=30)
-    if not out.any():
+    out = out.intersection(box(0, 0, meta["width"], meta["height"]))
+    rings = []
+    for q in polys(out):
+        rings.append([[round(x, 2), round(y, 2)] for x, y in q.exterior.coords[:-1]])
+        if op != "band":
+            rings += [[[round(x, 2), round(y, 2)] for x, y in h.coords[:-1]] for h in q.interiors if Polygon(h).area >= 4]
+    if not rings:
         raise ValueError("Nothing would be left of the region.")
-    return {"rings": _rings(np.pad(out, 2), (x0 - 2, y0 - 2)), "area": int(out.sum())}
+    return {"rings": rings, "area": float(out.area)}
 
 
 def library_measurements(lid):

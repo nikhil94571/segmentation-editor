@@ -484,6 +484,13 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
 .side .measure .chev { position: absolute; right: 0; top: 50%; margin-top: -7px; }
 .meas-b { margin-top: 20px; }
 .meas-act .btn { justify-content: center; }
+
+/* ---- fourth pass ---- */
+.sb-info { width: 18px; height: 18px; border-radius: 50%; border: 1.4px solid var(--ink-mute); color: var(--ink-mute); font-size: 11px; font-weight: 700; font-style: italic; font-family: Georgia, serif; line-height: 1; display: grid; place-items: center; justify-self: start; }
+.sb-info:hover { color: var(--accent); border-color: var(--accent); }
+.side-foot { display: grid; grid-template-columns: 1.15fr 1fr 1.2fr 1fr; gap: 6px; padding: 12px 12px 14px; border-top: 1px solid var(--line); }
+.side-foot .btn { width: auto; min-width: 0; justify-content: center; padding: 9px 2px; gap: 5px; font-size: var(--fs-small); }
+.side-foot .done-btn svg { width: 14px; height: 14px; flex: none; }
 </style>
 </head>
 <body>
@@ -544,6 +551,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
         <button class="sb" data-op="band" type="button" title="Add a new region: a band of this width around the outside">Band</button>
         <button class="link sb-reset" id="sliderReset" type="button" title="Put the region back to the model's own outline">Reset</button>
         <span class="sb-slide" id="sbSlideRow"><input type="range" id="slider" min="0.05" max="0.95" step="0.01" value="0.5" aria-label="Grow or shrink from the model"></span>
+        <button class="sb-info" id="sbInfo" type="button" hidden aria-label="Why the slider is off" title="The slider re-cuts a region from the model's output. This region was drawn, split or merged, so use Grow and Shrink.">i</button>
       </div>
     </div>
     <div class="toast" id="toast"></div>
@@ -562,13 +570,17 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
       <div class="q-colhead" id="confHead" hidden></div>
     </div>
     <div class="queue" id="queue"></div>
-    <div class="detail" id="detail"></div>
     <div class="sec measure" id="measure">
       <button class="sec-h meas-h" id="measToggle" type="button"><span>Measure</span><svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg></button>
       <div class="meas-b" id="measBody"></div>
     </div>
     </div>
-    <div class="side-foot"><button class="btn done-btn" id="doneBtn" hidden title="Mark this image as done (D)"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg><span id="doneLabel">Mark done</span><kbd>D</kbd></button></div>
+    <div class="side-foot">
+      <button class="btn done-btn" id="doneBtn" hidden title="Mark this image as done (D)"><svg viewBox="0 0 24 24"><path d="m5 12 5 5 9-10"/></svg><span id="doneLabel">Done</span></button>
+      <button class="btn danger" id="delRegion" type="button" title="Delete the selected region (Del)">Delete</button>
+      <button class="btn" id="navPrev" type="button" title="Previous region (Shift+N)">Previous</button>
+      <button class="btn" id="navNext" type="button" title="Next region, least confident first (N)">Next</button>
+    </div>
   </aside>
 
   <footer class="hint" id="hint"></footer>
