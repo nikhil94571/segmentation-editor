@@ -10,6 +10,8 @@ const SIDE = { x: 476, y: 66, w: 800, h: 500 };               // right part of t
 const SBOX = { x: 492, y: 90, w: 440, h: 440 };
 const LOW = { x: 476, y: 212, w: 800, h: 500 };               // same, lower: the slider and Mark done
 const LBOX = { x: 492, y: 236, w: 440, h: 440 };
+const BAR = { x: 4, y: 216, w: 800, h: 500 };                 // lower part of the image area, with the reshape bar
+const BBOX = { x: 96, y: 236, w: 690, h: 380 };
 const FULL = { x: 0, y: 0, w: W, h: H };
 
 let R;
@@ -23,6 +25,8 @@ const way = async (pts, opt) => hand(await R.ats(pts), opt);
 const start = async (name, clip, p) => { await R.put(p.x, p.y); await R.cursor(); await sleep(150); R.begin(name, clip); await R.hold(0.6); };
 const finish = async (poster) => { await R.hold(1.4); await R.end(poster); };
 const stroke = async (pts, opt = {}) => { await R.move(pts[0], opt.moveOpt); await R.hold(0.2); await R.press(); await R.hold(0.1); await R.trace(pts, opt); await R.hold(0.12); await R.release(); await R.hold(opt.after == null ? 0.5 : opt.after); };
+const inside = async (name) => { const p = await R.ev(`(()=>{const q=__editor.labelPoint(${reg(name)});return [q.x,q.y]})()`); return R.at(p[0], p[1]); };
+const cutLine = async (x0, y0, x1, y1) => hand(await R.ats([[x0, y0], [(2 * x0 + x1) / 3 + 3, (2 * y0 + y1) / 3], [(x0 + 2 * x1) / 3 - 3, (y0 + 2 * y1) / 3], [x1, y1]]), { wobble: 0.5 });
 const tool = async (t) => R.ev(`__editor.setTool(${JSON.stringify(t)})`);
 
 const GLAND = [[1300, 990], [1322, 952], [1385, 936], [1447, 950], [1478, 990], [1523, 1003], [1550, 1040], [1552, 1100], [1528, 1150], [1478, 1168], [1428, 1135], [1392, 1155], [1340, 1140], [1322, 1085], [1298, 1045]];
@@ -192,8 +196,8 @@ const scenes = {
 
   /* 15. Grow / shrink slider */
   async slider() {
-    await R.load(SLIDE); await view(1260, 500, 1930, 1010, LBOX);
-    await start("15-grow-shrink", LOW, { x: 600, y: 600 });
+    await R.load(SLIDE); await view(1380, 470, 1850, 790, BBOX);
+    await start("15-grow-shrink", BAR, { x: 240, y: 560 });
     await R.click(await R.at(1640, 600), { after: 0.7 });
     const s = await R.el("#slider"), t0 = await R.ev("+document.getElementById('slider').value");
     const X = (t) => s.l + 8 + (t - 0.05) / 0.9 * (s.w - 16);
@@ -282,6 +286,80 @@ const scenes = {
     await R.move({ x: 560, y: 330 }, { dur: 0.9 }); await R.hold(0.5); await R.move({ x: 560, y: 520 }, { dur: 0.9 }); await R.hold(0.9);
     await R.click(await R.el('#openTabs [data-tab="libs"]'), { after: 0.6 });
     await finish(0.4);
+  },
+
+  /* 22. Split a region: a line drawn right across it. The pieces share the cut. */
+  async split() {
+    await R.load(SLIDE); await view(1400, 480, 1830, 770, CBOX);
+    await start("22-split", CANVAS, { x: 260, y: 430 });
+    await R.click(await R.el("#toolDraw"), { after: 0.5 });
+    await stroke(await cutLine(1640, 505, 1640, 760), { speed: 190, after: 0.9 });
+    await R.click(await R.el("#toolEdit"), { after: 0.4 });
+    await R.click(await R.at(1600, 610), { after: 0.6 });
+    const m = await R.at(1640, 620);
+    await R.drag(m, { x: m.x + 36, y: m.y + 4 }, { dur: 1.2, after: 0.6 });
+    await R.move({ x: R.pos.x - 150, y: R.pos.y + 110 }); await finish();
+  },
+
+  /* 23. Grow, shrink and band by a typed distance */
+  async reshape() {
+    await R.load(SLIDE); await view(1380, 470, 1850, 790, BBOX);
+    await R.ev("document.getElementById('sbDist').value=12");
+    await start("23-reshape", BAR, { x: 240, y: 560 });
+    await R.click(await R.at(1640, 600), { after: 0.8 });
+    await R.click(await R.el('#shapeBar [data-op="grow"]'), { after: 0.9 }); await R.click(null, { after: 0.9 });
+    await R.click(await R.el('#shapeBar [data-op="shrink"]'), { after: 0.9 }); await R.click(null, { after: 0.9 });
+    await R.click(await R.el('#shapeBar [data-op="band"]'), { after: 1.2 });
+    await R.move({ x: R.pos.x - 200, y: R.pos.y - 120 }); await finish();
+  },
+
+  /* 24. Merge two regions that touch */
+  async merge() {
+    await R.load(SLIDE); await view(1380, 470, 1850, 790, BBOX); await tool("draw");
+    await stroke(await cutLine(1640, 505, 1640, 760), { speed: 600, after: 0.1 }); await tool("edit");
+    await R.ev("__editor.S.selected=null;__editor.refresh()"); await sleep(2900);       // let the "Split" message go
+    await start("24-merge", BAR, { x: 240, y: 560 });
+    await R.click(await R.at(1600, 610), { after: 0.8 });
+    await R.click(await R.el('#shapeBar [data-op="merge"]'), { after: 0.7 });
+    await R.click(await R.at(1680, 640), { after: 1.3 });
+    await R.move({ x: R.pos.x - 220, y: R.pos.y - 60 }); await finish();
+  },
+
+  /* 25. Label: say what a region is */
+  async label() {
+    await R.load(SLIDE); await view(1400, 480, 1830, 770, CBOX);
+    await start("25-label", CANVAS, { x: 260, y: 430 });
+    await R.click(await R.el("#toolLabel"), { after: 0.5 });
+    await R.click(await inside("region-04"), { after: 0.9 });
+    await R.click(await R.el('#labelPop [data-cls="tumour"]'), { after: 1.0 });
+    await R.click(await inside("region-04"), { after: 0.8 });
+    await R.click(await R.el("#popUnsure"), { after: 1.0 });
+    await R.move({ x: R.pos.x - 200, y: R.pos.y + 150 }); await finish();
+  },
+
+  /* 26. Ruler: longest diameter, the gap between two regions, the length along an outline */
+  async ruler() {
+    await R.load(SLIDE); await view(1290, 470, 1920, 990, CBOX);
+    await start("26-ruler", CANVAS, { x: 260, y: 430 });
+    await R.click(await R.el("#toolRuler"), { after: 0.5 });
+    await R.click(await inside("region-04"), { after: 1.5 });
+    await R.click(await inside("region-02"), { after: 1.9 });
+    await R.click(await onLine("region-04", 1656, 552), { after: 0.7 });
+    await R.click(await onLine("region-04", 1720, 714), { after: 1.9 });
+    await R.move({ x: R.pos.x - 220, y: R.pos.y + 60 }); await finish();
+  },
+
+  /* 27. The Measure panel, and switching to micrometres */
+  async measure() {
+    await R.load(SLIDE); await view(1260, 500, 1930, 1010, LBOX);
+    await R.ev(`(()=>{const S=__editor.S,c=["tumour","tumour","stroma","tumour","exclude"];S.regions.forEach((r,i)=>{if(c[i])r.cls=c[i];});__editor.refresh();})()`);
+    await start("27-measure", LOW, { x: 600, y: 600 });
+    await R.click(await R.at(1640, 600), { after: 0.6 });
+    await R.ev("document.querySelector('.side-scroll').scrollTop=9999"); await R.hold(1.6);
+    const px = await R.el("#pxUm"); await R.click(px, { after: 0.4 });
+    await R.ev(`(()=>{const i=document.getElementById('pxUm');i.value='0.5';i.dispatchEvent(new Event('change'));})()`); await R.hold(1.8);
+    await R.move({ x: px.x - 70, y: px.y - 170 }); await finish();
+    await R.ev(`fetch('/api/editor/library/scale',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id:__editor.S.lib.id,um:0})}).then(()=>true)`);
   },
 
   /* A short GIF of the whole interface for an email: zoom in, extend a region, trim a region. -> scratch/editor-demo.gif */

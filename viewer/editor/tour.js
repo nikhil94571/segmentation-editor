@@ -73,7 +73,7 @@
   const inCanvas = (p) => { const b = cv.getBoundingClientRect(); return p.x >= b.left && p.x <= b.right && p.y >= b.top && p.y <= b.bottom; };
   function showCur() {
     cur.style.transform = `translate(${pos.x}px,${pos.y}px)`; cur.classList.toggle("down", down);
-    cur.classList.toggle("cross", S().tool === "draw" && inCanvas(pos) && !document.querySelector(".backdrop.show"));
+    cur.classList.toggle("cross", (S().tool === "draw" || S().tool === "ruler") && inCanvas(pos) && !document.querySelector(".backdrop.show"));
   }
   const fire = (type, buttons) => cv.dispatchEvent(new PointerEvent(type, { clientX: pos.x, clientY: pos.y, button: 0, buttons, pointerId: 1, pointerType: "mouse", bubbles: true, cancelable: true }));
   function put(x, y) { pos = { x, y }; if (down || inCanvas(pos)) fire("pointermove", down ? 1 : 0); showCur(); }
@@ -166,39 +166,46 @@
 
   /* ---------------- the steps ---------------- */
   const stage = () => box("#stage", 0), K = (s) => `<kbd>${s}</kbd>`;
+  const WORK = [1400, 480, 1830, 770];                         // the view steps 3 to 7 share: region-04, close up
+  const row = (name) => document.querySelector(`#queue .q-item[data-id="${reg(name).id}"]`);
+  const inside = (name) => { const q = Ed().labelPoint(reg(name)); return at(q.x, q.y); };
   const STEPS = [
-    { title: "A model's regions, ready to correct",
-      text: () => `This is a tissue image with a segmentation model's output in blue. The editor is for correcting it: fix an outline, add what the model missed, remove what it got wrong. Watch each step, then click <b>Next</b>.`,
+    { title: "A short tour",
+      text: () => `Welcome! Watch this short tour to learn how to correct a segmented image. Click <b>Next</b>.`,
       async play(t) {
         await Promise.all([spot(t, [stage()]), whole(t)]);
-        await move(t, at(1640, 600), 1.0); await wait(t, 700); await move(t, at(1420, 1040), 0.9); await wait(t, 500); await move(t, at(330, 1240), 1.1);
+        await move(t, at(1640, 600), 1.0); await wait(t, 700); await move(t, at(1420, 800), 0.9); await wait(t, 500); await move(t, at(330, 1100), 1.1);
       } },
     { title: "Six practice images", at: "#caseNav",
-      text: () => `Six practice images are loaded. These arrows step through them, and <b>Open</b> on the right lists them all.`,
+      text: () => `Six practice images are loaded. The arrows step through them, and <b>Open</b> on the right lists them all and takes your own images.`,
       async play(t) {
-        await Promise.all([spot(t, [union(box("#caseNav"), box("#sessionName"))]), whole(t)]);
-        const b = $("nextCase").getBoundingClientRect(); await move(t, { x: b.left + b.width / 2, y: b.top + b.height / 2 + 2 });
+        await Promise.all([spot(t, [union(box("#caseNav"), box("#sessionName")), box("#open")]), whole(t)]);
+        const b = $("nextCase").getBoundingClientRect(); await move(t, { x: b.left + b.width / 2, y: b.top + b.height / 2 + 2 }); await wait(t, 900);
+        const o = $("open").getBoundingClientRect(); await move(t, { x: o.left + o.width / 2, y: o.top + o.height / 2 + 2 }, 1.2);
       } },
     { title: "Select a region",
       text: () => `Click a region on the image, or its name in the list. Orange nodes appear on its outline: that is the region you are working on. The list starts with the regions the model was least sure about.`,
       async play(t) {
         await Promise.all([spot(t, [union(stage(), box(".side", 0))]), whole(t)]);
-        await click(t, at(1620, 600), 1100);
-        const row = document.querySelectorAll("#queue .q-item")[3];
-        if (row) { const b = row.getBoundingClientRect(); await move(t, { x: b.left + b.width / 2, y: b.top + b.height / 2 }); await wait(t, 150); down = true; ring(); showCur(); await wait(t, 110); down = false; await glide(t, () => document.querySelectorAll("#queue .q-item")[3].click()); await wait(t, 1100); }
-        await whole(t, 700);
+        const el = row("region-04");
+        if (el) {
+          const b = el.getBoundingClientRect(); await move(t, { x: b.left + b.width / 2, y: b.top + b.height / 2 }); await wait(t, 150);
+          down = true; ring(); showCur(); await wait(t, 110); down = false;
+          const v0 = Object.assign({}, S().view); el.click(); S().view = v0; Ed().draw();     // the list zooms to the region: shown as a glide
+        } else await click(t, at(1620, 600), 300);
+        await look(t, ...WORK, 900);
+        await move(t, at(1700, 760), 0.9);
       } },
     { title: "Extend or trim a region",
       text: () => `Click the pencil, or press ${K("P")}. Start <b>on the outline</b> (an orange dot shows where), draw the new edge, and end back <b>on the same outline</b>. That stretch of the outline is replaced by your line.`,
       async play(t) {
-        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1400, 480, 1830, 770)]);
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
         await clickEl(t, "#toolDraw", 500);
         say("Extend: draw the new edge outside the region", 3200);
-        await stroke(t, hand([onLine("region-04", 1570, 640)].concat(ats([[1578, 690], [1612, 728], [1662, 738], [1698, 722]]), [onLine("region-04", 1712, 702)]), false, 0.6), 200, 900);
-        await look(t, -40, 1390, 390, 1680, 1100);
+        await stroke(t, hand([onLine("region-04", 1570, 640)].concat(ats([[1578, 690], [1612, 728], [1662, 738], [1698, 722]]), [onLine("region-04", 1712, 702)]), false, 0.6), 200, 1000);
         say("Trim: draw through the region; the smaller piece is cut off", 3400);
-        await stroke(t, hand([onLine("region-03", 146, 1508)].concat(ats([[136, 1532], [132, 1560], [140, 1582]]), [onLine("region-03", 150, 1596)]), false, 0.5), 170, 500);
-        await move(t, { x: pos.x + 150, y: pos.y - 90 });
+        await stroke(t, hand([onLine("region-04", 1562, 570)].concat(ats([[1566, 592], [1565, 616]]), [onLine("region-04", 1558, 639)]), false, 0.4), 150, 500);
+        await move(t, { x: pos.x + 150, y: pos.y + 60 });
       } },
     { title: "Draw a region the model missed",
       text: () => `Still with the pencil: press, draw around the area, and finish where you started. The shape fills in when the loop closes.`,
@@ -209,28 +216,41 @@
         await move(t, { x: pos.x - 110, y: pos.y + 90 });
       } },
     { title: "Adjust the outline",
-      text: () => `Click the arrow, or press ${K("V")}, and select a region. <b>Drag a node</b> to move that part of the outline, or <b>drag the line</b> between two nodes to bend it.`,
+      text: () => `Click the arrow, or press ${K("V")}, and select a region. <b>Drag a node</b> to move that part of the outline, then <b>drag the line</b> between nodes to bend it into shape.`,
       async play(t) {
         Ed().setTool("draw");                                  // as the step before left it
-        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1400, 480, 1830, 770)]);
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
         await clickEl(t, "#toolEdit", 500);
         await click(t, at(1640, 600), 700);
         say("Drag a node"); await drag(t, nodeAt("region-04", 1659, 656), at(1668, 716), 1.2, 500);
         await drag(t, nodeAt("region-04", 1605, 651), at(1612, 700), 1.0, 700);
-        say("Drag the line to bend it");
-        const a = onLine("region-04", 1708, 610), s = S().view.s; await drag(t, a, { x: a.x + 19 * s, y: a.y - 9 * s }, 1.1, 500);
-        const b = onLine("region-04", 1536, 610); await drag(t, b, { x: b.x - 16 * s, y: b.y + 4 * s }, 1.0, 300);
+        say("Then drag the line between them to bend it");
+        const s = S().view.s, a = onLine("region-04", 1640, 709); await drag(t, a, { x: a.x + 1 * s, y: a.y + 15 * s }, 1.1, 500);
+        const b = onLine("region-04", 1594, 668); await drag(t, b, { x: b.x - 24 * s, y: b.y + 12 * s }, 1.0, 300);
         await move(t, { x: pos.x - 70, y: pos.y + 80 });
       } },
-    { title: "Delete a wrong region, and undo anything",
-      text: () => `Select a region and press ${K("Delete")} to remove it. The undo arrow at the top, or ${K(MAC ? "⌘" : "Ctrl")} ${K("Z")}, takes back any change, one step at a time.`,
+    { title: "Say what a region is",
+      text: () => `Click the tag, or press ${K("L")}, then click a region and pick its class. A coloured dot marks it. With a region selected, the keys ${K("1")} to ${K("9")} do the same in any tool.`,
       async play(t) {
-        await Promise.all([spot(t, [stage()]), look(t, 1250, 470, 1960, 1000)]);
-        await click(t, at(1640, 600), 700);
-        await move(t, { x: pos.x + 120, y: pos.y + 110 }); await key(t, "Delete", "Delete", 1000);
-        await spot(t, [stage(), union(box("#undo"), box("#redo"))]);
-        await clickEl(t, "#undo", 900);
-        await move(t, { x: pos.x - 60, y: pos.y + 150 });
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
+        await clickEl(t, "#toolLabel", 500);
+        await click(t, inside("region-04"), 700);
+        await clickEl(t, "#labelPop [data-cls]", 700);
+        await move(t, { x: pos.x + 130, y: pos.y + 120 });
+      } },
+    { title: "Measure",
+      text: () => `Click the ruler, or press ${K("R")}. Click a region for its longest diameter, then another region for the gap between them. The <b>Measure</b> panel on the right gives areas, perimeters and the share of each class.`,
+      async play(t) {
+        await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1290, 470, 1920, 990)]);
+        await clickEl(t, "#toolRuler", 500);
+        await click(t, inside("region-04"), 1400);
+        await click(t, inside("region-02"), 1700);
+        S().selected = reg("region-04").id; $("measure").classList.remove("shut"); Ed().refresh();
+        $("measure").scrollIntoView({ block: "nearest" }); await wait(t, 60);
+        await spot(t, [box("#measure", 2)]);
+        const m = $("measure").getBoundingClientRect();
+        await move(t, { x: m.left + m.width * 0.3, y: m.top + Math.min(m.height * 0.4, 130) }, 1.1); await wait(t, 500);
+        await move(t, { x: m.left + m.width * 0.6, y: m.top + Math.min(m.height * 0.7, 230) }, 1.0);
       } },
     { title: "Save your corrections", at: "left",
       text: () => hosted
@@ -242,12 +262,15 @@
         for (let i = 0; i < 40 && !($("exportModal").classList.contains("show") && $("exGo")); i++) await wait(t, 100);
         await wait(t, 150);
         await spot(t, [Object.assign(box("#exportModal .modal", 0), { r: 22 }), box("#export")]);
-        const f = document.querySelector("#exportBody .fmts"); if (!f) return;
-        const b = f.getBoundingClientRect(); await move(t, { x: b.left + 40, y: b.top + 12 }); await wait(t, 300); await move(t, { x: b.left + 60, y: b.bottom - 12 }, 1.4); await wait(t, 400);
+        for (const v of ["mask_png", "roiset_zip"]) {            // tick two more file types
+          const inp = document.querySelector(`input[name=exFmt][value=${v}]`); if (!inp || inp.checked) continue;
+          const b = (inp.closest("label") || inp).getBoundingClientRect(); await move(t, { x: b.left + 16, y: b.top + b.height / 2 }); await wait(t, 160);
+          down = true; ring(); showCur(); await wait(t, 110); down = false; showCur(); inp.click(); await wait(t, 550);
+        }
         const g = $("exGo").getBoundingClientRect(); await move(t, { x: g.left + g.width / 2, y: g.top + g.height / 2 + 2 });
       } },
     { title: "The rest is in the Tutorial", at: "#tutBtn", last: true,
-      text: () => `That is enough to correct an image. The <b>Tutorial</b> button has a short clip for every tool, including holes, grow and shrink, and opening your own images. You can replay this tour from there too.`,
+      text: () => `That is enough to correct an image. The <b>Tutorial</b> button has a short clip for every tool, including splitting, merging, holes and opening your own images. You can replay this tour from there too.`,
       async play(t) {
         await Promise.all([spot(t, [box("#tutBtn")]), whole(t)]);
         const b = $("tutBtn").getBoundingClientRect(); await move(t, { x: b.left + b.width / 2, y: b.top + b.height / 2 + 3 });
@@ -272,7 +295,7 @@
     const s = S(); down = false;
     document.querySelectorAll(".backdrop.show").forEach((m) => m.classList.remove("show"));
     badge.classList.remove("show");
-    Object.assign(s, { regions: JSON.parse(base), counter: 0, selected: null, hole: null, draft: null, stroke: null, drag: null, hover: null, undo: [], redo: [] });
+    Object.assign(s, { regions: JSON.parse(base), counter: 0, selected: null, hole: null, draft: null, stroke: null, drag: null, hover: null, ruler: null, ruling: false, pickOp: null, undo: [], redo: [] });
     Ed().setTool("edit"); Ed().refresh();
   }
   async function go(i) {
