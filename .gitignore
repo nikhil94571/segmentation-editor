@@ -18,3 +18,4 @@ backups/
 data/bcss/
 .venv-ml/
 models/
+local-data/
