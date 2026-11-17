@@ -144,6 +144,10 @@
   const at = (ix, iy) => { const b = cv.getBoundingClientRect(), v = S().view; return { x: b.left + v.x + ix * v.s, y: b.top + v.y + iy * v.s }; };
   const ats = (pts) => pts.map(([x, y]) => at(x, y));
   const reg = (name) => S().regions.find((r) => r.name === name);
+  // each step starts from the model's own regions; the class picked in "Say what a region is" is put back on region-04
+  // in the steps after it, so the Measure panel can show a split by class
+  let chosenCls = null;
+  const keepClass = () => { const r = reg("region-04"), c = chosenCls || (S().classes[0] || {}).id; if (r && c) r.cls = c; };
   const onLine = (name, x, y) => { const n = G.nearest(reg(name).paths[0], { x, y }); return at(n.point.x, n.point.y); };
   const nodeAt = (name, x, y) => { let best = null; for (const n of reg(name).paths[0].nodes) { const d = Math.hypot(n.x - x, n.y - y); if (!best || d < best.d) best = { n, d }; } return at(best.n.x, best.n.y); };
   function viewOf(x0, y0, x1, y1) {
@@ -235,17 +239,19 @@
         await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, ...WORK)]);
         await clickEl(t, "#toolLabel", 500);
         await click(t, inside("region-04"), 700);
+        const pick = document.querySelector("#labelPop [data-cls]"); if (pick) chosenCls = pick.dataset.cls;
         await clickEl(t, "#labelPop [data-cls]", 700);
         await move(t, { x: pos.x + 130, y: pos.y + 120 });
       } },
     { title: "Measure",
-      text: () => `Click the ruler, or press ${K("4")}. <b>Drag</b> for a straight distance. <b>Click a region</b> for its longest diameter, then <b>another region</b> for the gap between them. <b>Click two points</b> on an outline for the length along it. The <b>Measure</b> panel gives areas and the share of each class.`,
+      text: () => `Click the ruler, or press ${K("4")}. <b>Drag</b> for a straight distance. <b>Click a region</b> for its longest diameter, then <b>another region</b> for the gap between them. <b>Click two points</b> on an outline for the length along it.`,
       async play(t) {
+        keepClass(); Ed().refresh();
         await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1290, 470, 1920, 990)]);
         await clickEl(t, "#toolRuler", 400);
         // between gestures the last measurement is simply cleared (no trip away to click empty tissue): the time goes
         // to each result, not to resetting
-        const clear = async () => { const s = S(); s.ruler = null; s.selected = null; Ed().refresh(); await wait(t, 120); };
+        const clear = async (ms) => { const s = S(); s.ruler = null; s.selected = null; Ed().refresh(); await wait(t, ms || 120); };
         // a drag across region-04, each end starting just inside it so it can be seen to snap onto the outline
         const r4 = G.bbox(reg("region-04").paths), cy = (r4.y0 + r4.y1) / 2;
         const ea = onLine("region-04", r4.x0, cy), eb = onLine("region-04", r4.x1, cy);
@@ -254,21 +260,34 @@
         await drag(t, ins(ea, eb, 7), ins(eb, ea, 7), 1.0, 1300);
         await clear();
         say("Click a region: its longest diameter", 2200);
-        await click(t, inside("region-04"), 1600);
-        await clear();
-        say("A region, then another: the gap between them", 2600);
+        await click(t, inside("region-04"), 1900);
+        await clear(450);
+        say("A region, then another: the gap between them", 2900);
         await click(t, inside("region-04"), 250);
-        await click(t, inside("region-02"), 1700);
+        await click(t, inside("region-02"), 2000);
         await clear();
-        say("Two points on an outline: the length along it, both ways round", 3000);
+        say("Two points on an outline: the length along it, both ways round", 3400);
         await click(t, onLine("region-04", 1656, 552), 250);
-        await click(t, onLine("region-04", 1720, 714), 1900);
+        await click(t, onLine("region-04", 1720, 714), 2400);
+      } },
+    { title: "The Measure panel",
+      text: () => `With a region selected, the top of the <b>Measure</b> panel gives that region's own numbers: area, perimeter, longest diameter and circularity. Below, a table splits everything by class: each class's area, and its share of the regions and of the whole image.`,
+      async play(t) {
+        keepClass();
+        const s = S(), r = reg("region-04"); s.selected = r.id;
         $("measure").classList.remove("shut"); Ed().refresh();
         $("measure").scrollIntoView({ block: "nearest" }); await wait(t, 60);
-        await spot(t, [box("#measure", 2)]);
-        const m = $("measure").getBoundingClientRect();
-        await move(t, { x: m.left + m.width * 0.3, y: m.top + Math.min(m.height * 0.4, 130) }, 1.1); await wait(t, 500);
-        await move(t, { x: m.left + m.width * 0.6, y: m.top + Math.min(m.height * 0.7, 230) }, 1.0);
+        const sel = document.querySelector("#measBody > div"), table = document.querySelector("#measBody .meas-t");
+        await spot(t, [box(sel, 4)].concat(document.querySelector(".q-item.on") ? [box(".q-item.on", 2)] : []));
+        say("The selected region: its own measurements", 2600);
+        const a = sel.getBoundingClientRect();
+        await move(t, { x: a.left + a.width * 0.3, y: a.top + a.height * 0.55 }, 0.9); await wait(t, 600);
+        await move(t, { x: a.left + a.width * 0.75, y: a.top + a.height * 0.8 }, 0.8); await wait(t, 900);
+        await spot(t, [box(table, 4)]);
+        say("Every class: its area, share of the regions, share of the image", 3000);
+        const b = table.getBoundingClientRect();
+        await move(t, { x: b.left + b.width * 0.25, y: b.top + b.height * 0.4 }, 0.9); await wait(t, 700);
+        await move(t, { x: b.left + b.width * 0.85, y: b.top + b.height * 0.55 }, 0.9); await wait(t, 1200);
       } },
     { title: "Save your corrections", at: "left",
       text: () => hosted
