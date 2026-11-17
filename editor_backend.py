@@ -1135,14 +1135,14 @@ PRACTICE = ("pash-low", "gynecomastoid-mid", "fibrocystic-mid", "prolif-fibrocys
 
 
 def _seed_practice():
-    """The built-in practice images, as a library. Created once; if deleted it stays deleted.
+    """The built-in practice images, as a library. Always there (the tour works on them): it can be hidden, not
+    deleted, and one deleted by an older version is made again.
     data/practice/ (in the repository) holds six model outputs for images in data/tissue_2k/. Without it
     (an older checkout), every case made by make_cases.py is used."""
     libs().mkdir(parents=True, exist_ok=True)
-    marker = libs() / ".seeded"
-    if marker.exists():
+    if (_lib_path("practice") / "library.json").exists():
         return
-    marker.write_text("1")
+    (libs() / ".seeded").write_text("1")
     cases = []
     if (ROOT / "data" / "practice").is_dir():
         for i, src in enumerate(PRACTICE, 1):
@@ -1170,8 +1170,16 @@ def list_libraries():
         lib = json.loads(f.read_text())
         out.append({"id": lib["id"], "name": lib["name"], "created": lib.get("created", ""),
                     "count": len(lib["cases"]), "edited": sum(_edited(c) for c in lib["cases"]),
-                    "done": sum(bool(c.get("done")) for c in lib["cases"])})
+                    "done": sum(bool(c.get("done")) for c in lib["cases"]), "hidden": bool(lib.get("hidden"))})
     return {"libraries": out}
+
+
+def set_hidden(lid, hidden):
+    """Hide a library from the list (the practice images: kept for the tour, out of the way)."""
+    lib = _read_lib(lid)
+    lib["hidden"] = bool(hidden)
+    _write_lib(lib)
+    return {"ok": True, "hidden": lib["hidden"]}
 
 
 def get_library(lid):
@@ -1323,6 +1331,8 @@ def rename_library(lid, name):
 
 
 def delete_library(lid):
+    if lid == "practice":
+        raise ValueError("The practice images can be hidden but not deleted: the tour uses them.")
     lib = _read_lib(lid)
     for c in lib["cases"]:
         if c.get("sid"):

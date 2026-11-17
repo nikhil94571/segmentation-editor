@@ -376,12 +376,14 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 .side .sec.shut.folding > .sec-b { display: block; }
 .measure.shut.folding .meas-b { display: block; }
 #cv { transition: opacity .2s ease; }
-#previewImg { transition: opacity .16s ease; }
-#previewImg.swap { opacity: .25; }
+.pv-imgs { position: relative; }
+#previewNext { position: absolute; inset: 0; opacity: 0; pointer-events: none; }
+#previewNext.in { opacity: 1; transition: opacity .28s ease; }
 #cv.switching { opacity: .35; }
 .preview:not([hidden]) { animation: rev-in .18s ease; }
 .review.closing { opacity: 0; transition: opacity .18s ease; }
 #openTabs { margin-bottom: 20px; }
+.lib-hidden { text-align: center; margin: 10px 0 0; }
 #libDrop { margin-top: 20px; }
 details.more { margin-top: 20px; }
 @media (prefers-reduced-motion: reduce) { #cv, .review.closing { transition: none; } .preview:not([hidden]) { animation: none; } }
@@ -760,7 +762,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
     <div class="review-f"><span class="err" id="revErr"></span><button class="btn primary" data-accept>Accept</button></div>
   </div>
 </div>
-  <div class="preview" id="preview" hidden><img id="previewImg" alt=""><div class="cap"><span class="q-name" id="previewName"></span><span>Click again or press Enter to open</span></div></div>
+  <div class="preview" id="preview" hidden><div class="pv-imgs"><img id="previewImg" alt=""><img id="previewNext" alt="" aria-hidden="true"></div><div class="cap"><span class="q-name" id="previewName"></span><span>Click again or press Enter to open</span></div></div>
 </div>
 
 <div class="backdrop" id="exportModal"><div class="modal" style="width:520px">

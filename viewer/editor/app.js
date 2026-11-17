@@ -1043,11 +1043,16 @@
     $("libList").querySelectorAll("[data-case]").forEach((b) => { const on = +b.dataset.case === i && b.dataset.lid === lid; b.classList.toggle("sel", on); if (on) b.scrollIntoView({ block: "nearest" }); });
     const pv = $("preview"), m = document.querySelector("#openModal .modal").getBoundingClientRect();
     const src = `/api/editor/library/preview?id=${encodeURIComponent(lid)}&index=${i}&t=${Date.now()}`, im = $("previewImg");
-    if (pv.hidden || REDUCE) { im.src = src; im.dataset.want = src; }
-    else {                                                      // a different image fades in over the last one
-      im.classList.add("swap"); im.dataset.want = src;
-      const next = new Image(); next.src = src;
-      next.decode().catch(() => {}).then(() => { if (im.dataset.want === src) { im.src = src; requestAnimationFrame(() => im.classList.remove("swap")); } });
+    im.dataset.want = src;
+    if (pv.hidden || REDUCE) im.src = src;
+    else {                                                      // the next image fades in on top of the last one
+      const top = $("previewNext");
+      top.classList.remove("in"); top.src = src;
+      top.decode().catch(() => {}).then(() => {
+        if (im.dataset.want !== src) return;
+        requestAnimationFrame(() => top.classList.add("in"));
+        setTimeout(() => { if (im.dataset.want !== src) return; im.src = src; im.decode().catch(() => {}).then(() => top.classList.remove("in")); }, 300);
+      });
     }
     $("previewName").textContent = cases[i].name;
     pv.hidden = false;
@@ -1069,7 +1074,7 @@
   async function toggleLib(id) {                                // show or hide a library's images, without opening it
     S.pick = null; $("preview").hidden = true;
     const old = $("libList").querySelector(".cases");
-    if (old) await collapse(old);
+    if (old) { await collapse(old); old.style.display = "none"; }   // stays closed while the list is redrawn
     S.libOpen = S.libOpen === id ? null : id;
     if (S.lib && id === S.lib.id) S.libShut = S.libOpen !== id;
     if (S.libOpen && !casesOf(S.libOpen)) {
@@ -1082,15 +1087,18 @@
   async function renderLibraries() {
     let j; try { j = await api("/api/editor/libraries"); } catch (e) { $("libErr").textContent = e.message; return; }
     const cur = S.lib && S.lib.id;
-    $("libList").innerHTML = j.libraries.length ? j.libraries.map((l) => `
+    const shown = j.libraries.filter((l) => !l.hidden), hidden = j.libraries.filter((l) => l.hidden);
+    $("libList").innerHTML = (shown.length ? shown.map((l) => `
       <div class="li ${l.id === cur ? "current" : ""} ${l.id === S.libOpen ? "open" : "shut"}" data-lib="${esc(l.id)}" title="Click to show or hide its images">
         <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="q-name" data-name>${esc(l.name)}</span>
         <span class="meta">${l.count} image${l.count === 1 ? "" : "s"}${l.done ? ` · ${l.done} done` : ""}${l.edited ? ` · ${l.edited} edited` : ""}</span>
         ${l.id === cur ? '<span class="tag cur">Current</span>' : ""}
         <button class="btn" data-act="rename">Rename</button>
-        ${S.hosted && l.id === "practice" ? "" : '<button class="btn danger" data-act="delete">Delete</button>'}
+        ${l.id === "practice" ? `<button class="btn" data-act="${l.hidden ? "show" : "hide"}" title="The practice images stay for the tour; hiding them only takes them off this list">${l.hidden ? "Show" : "Hide"}</button>` : '<button class="btn danger" data-act="delete">Delete</button>'}
       </div>${l.id === S.libOpen && casesOf(l.id) ? `<div class="cases">${casesOf(l.id).map((c, i) => `<button class="${l.id === cur && i === S.caseIndex ? "on" : ""} ${l.id === S.pickLib && i === S.pick ? "sel" : ""}" data-case="${i}" data-lid="${esc(l.id)}"><span class="q-name">${esc(c.name)}</span>${c.done ? '<span class="tag done">done</span>' : c.edited ? '<span class="tag">edited</span>' : ""}</button>`).join("")}</div>` : ""}`).join("")
-      : '<p class="note">No libraries yet. Import a folder of images below.</p>';
+      : '<p class="note">No libraries yet. Import a folder of images below.</p>')
+      + (hidden.length ? `<p class="note lib-hidden">${hidden.map((l) => `<button class="link" data-show="${esc(l.id)}" type="button">Show ${esc(l.name.toLowerCase())}</button>`).join(" · ")}</p>` : "");
+    $("libList").querySelectorAll("[data-show]").forEach((b) => (b.onclick = async () => { try { await api("/api/editor/library/hide", { id: b.dataset.show, hidden: false }); renderLibraries(); } catch (e) { $("libErr").textContent = e.message; } }));
     $("libList").querySelectorAll("[data-case]").forEach((b) => {
       b.onclick = () => pickCase(+b.dataset.case, b.dataset.lid);
       b.ondblclick = () => { if (S.pick !== +b.dataset.case || S.pickLib !== b.dataset.lid) { S.pick = +b.dataset.case; S.pickLib = b.dataset.lid; } openPicked(); };
@@ -1100,7 +1108,8 @@
     $("libList").querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
       const row = b.closest("[data-lib]"), id = row.dataset.lib, act = b.dataset.act;
       try {
-        if (act === "use") { $("libErr").textContent = "Opening…"; S.libShut = false; await useLibrary(id); $("openModal").classList.remove("show"); }
+        if (act === "hide" || act === "show") { await api("/api/editor/library/hide", { id, hidden: act === "hide" }); if (act === "hide" && S.libOpen === id) S.libOpen = null; renderLibraries(); }
+        else if (act === "use") { $("libErr").textContent = "Opening…"; S.libShut = false; await useLibrary(id); $("openModal").classList.remove("show"); }
         else if (act === "rename") {
           const span = row.querySelector("[data-name]"), inp = document.createElement("input");
           inp.type = "text"; inp.value = span.textContent; inp.style.flex = "1"; span.replaceWith(inp); inp.focus(); inp.select();
