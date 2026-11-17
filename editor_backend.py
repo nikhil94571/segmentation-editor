@@ -1706,7 +1706,10 @@ def _export_cases(lid, lib, out, folders, want, opts, job, at, n_cases):
             _progress[job] = {"done": i + 1, "total": len(lib["cases"])}
         for key, url in r["files"].items():
             src = sd / "export" / Path(url).name
-            shutil.copy(src, out / folders[key] / src.name)
+            # a corrected mask is named after the original image, which two images of a library can share:
+            # number it like every other file so one never overwrites another
+            name = src.name if src.name.startswith(stem) else f"{i + 1:03d}_{src.name}"
+            shutil.copy(src, out / folders[key] / name)
         rows.append({"image": c["name"], "file_stem": stem, "regions": r["regions"], "mask_px": r["mask_px"],
                      "edited": "yes" if edited else "no", "done": "yes" if c.get("done") else "no",
                      "imagej_iou": r["imagej_iou"]})
