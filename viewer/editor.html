@@ -209,8 +209,12 @@ canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block
   border-top: 1px solid var(--line); font-size: var(--fs-small); color: var(--ink-soft); white-space: nowrap; overflow: hidden; }
 
 /* modal */
-.backdrop { position: fixed; inset: 0; background: rgba(20,28,40,.38); display: none; align-items: center; justify-content: center; z-index: 50; padding: 20px; }
-.backdrop.show { display: flex; }
+.backdrop { position: fixed; inset: 0; background: rgba(20,28,40,.38); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 20px;
+  visibility: hidden; opacity: 0; pointer-events: none; transition: opacity .2s ease, visibility 0s linear .2s; }
+.backdrop.show { visibility: visible; opacity: 1; pointer-events: auto; transition: opacity .2s ease; }
+.backdrop > .modal { transform: translateY(10px) scale(.985); transition: transform .26s cubic-bezier(.2,.7,.2,1); }
+.backdrop.show > .modal { transform: none; }
+@media (prefers-reduced-motion: reduce) { .backdrop, .backdrop.show, .backdrop > .modal { transition: none; } }
 .modal { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; box-shadow: var(--shadow-lg); width: 720px; max-width: 100%;
   max-height: calc(100vh - 40px); display: flex; flex-direction: column; }
 .modal-h { display: flex; align-items: center; justify-content: space-between; padding: 14px 18px; border-bottom: 1px solid var(--line-soft); }
@@ -273,7 +277,7 @@ details.more summary { text-align: center; }
 /* a library's images and the files each is made from, laid over the Open dialog */
 .modal { position: relative; }
 .review { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: var(--modal-bg, var(--panel));
-  border-radius: inherit; animation: rev-in .22s ease; }
+  border-radius: inherit; animation: rev-in .22s ease; -webkit-backdrop-filter: blur(16px); backdrop-filter: blur(16px); }
 .review[hidden] { display: none; }
 .modal:has(> .review:not([hidden])) { min-height: min(620px, calc(100vh - 40px)); }
 @keyframes rev-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
@@ -361,7 +365,19 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 .prog-t { display: flex; justify-content: space-between; font-size: var(--fs-small); color: var(--ink-soft); font-variant-numeric: tabular-nums; }
 
 .dest[hidden] { display: none; }
-.li.current { cursor: pointer; }
+.li { cursor: pointer; }
+.li.open:not(.current) { border-color: var(--accent-line); }
+/* folding: a section keeps showing while it closes, then hides */
+.side .sec.shut.folding > .sec-b { display: block; }
+.measure.shut.folding .meas-b { display: block; }
+#cv { transition: opacity .2s ease; }
+#cv.switching { opacity: .35; }
+.preview:not([hidden]) { animation: rev-in .18s ease; }
+.review.closing { opacity: 0; transition: opacity .18s ease; }
+#openTabs { margin-bottom: 20px; }
+#libDrop { margin-top: 20px; }
+details.more { margin-top: 20px; }
+@media (prefers-reduced-motion: reduce) { #cv, .review.closing { transition: none; } .preview:not([hidden]) { animation: none; } }
 .li .chev { width: 15px; height: 15px; flex: none; fill: none; stroke: var(--ink-mute); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s; margin-right: -2px; }
 .li.shut .chev { transform: rotate(-90deg); }
 .topbar { gap: 8px; }
@@ -732,7 +748,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
     </div>
   </div>
   <div class="review" id="libReview" hidden>
-    <div class="modal-h"><h3 id="revTitle">Check the files</h3><button class="btn primary" data-accept>Accept</button></div>
+    <div class="modal-h"><h3 id="revTitle">Check the files</h3></div>
     <div class="review-b" id="revList"></div>
     <div class="review-f"><span class="err" id="revErr"></span><button class="btn primary" data-accept>Accept</button></div>
   </div>

@@ -195,13 +195,26 @@
      then nodes are taken away one at a time, always the one whose removal strays least, while the curve that
      replaces its two neighbouring pieces stays within tol everywhere. Tangents at the remaining nodes are kept,
      so the curve stays smooth through them. */
-  G.fitSmoothClosed = (ring, tol, minNodes = 2) => {
+  G.fitSmoothClosed = (ring, tol, minNodes = 2, bounds = null) => {
     const step = 2.5, pts = G.resample(dedupe(ring), step, true), n = pts.length, err = tol * tol;
     if (n < 8) return G.fitClosed(ring, tol);
     const span = (a, z) => { const s = []; for (let i = a; ; i++) { s.push(pts[i % n]); if (i % n === z % n && s.length > 1) break; } return s; };
     // a true corner (the outline turns sharply, e.g. where it meets the image edge or pinches to a point) is
     // kept as one node with a sharp turn, never removed; everywhere else the curve stays smooth
     const cs = corners(pts, step);
+    // where the outline runs along the image's edge it is a straight line: it gets a straight segment, and a fixed
+    // node where it leaves the edge, so the curve never bows out past the image
+    const edgeOf = (p) => !bounds ? 0 : p.x <= 1 ? 1 : p.x >= bounds.w - 1 ? 2 : p.y <= 1 ? 3 : p.y >= bounds.h - 1 ? 4 : 0;
+    const E = pts.map(edgeOf), straight = new Set();
+    if (E.some((e) => e)) {
+      for (let i = 0; i < n; i++) {
+        if (!E[i] || E[(i - 1 + n) % n] === E[i]) continue;          // the start of a run along one edge
+        let j = i; while (E[(j + 1) % n] === E[i] && (j + 1) % n !== i) j++;
+        if (j - i >= 2) { cs.push(i); cs.push(j % n); straight.add(i); }
+      }
+      cs.sort((a, b) => a - b);
+      for (let k = cs.length - 1; k > 0; k--) if (cs[k] === cs[k - 1]) cs.splice(k, 1);
+    }
     let segs = [];
     if (!cs.length) {
       const loop = pts.concat([pts[0]]), t = norm(sub(pts[1], pts[n - 1]));
@@ -212,6 +225,11 @@
       for (let k = 0; k < cs.length; k++) {
         const a = cs[k], z = cs.length === 1 ? a + n : cs[(k + 1) % cs.length] + (cs[(k + 1) % cs.length] <= a ? n : 0);
         const d = span(a, z), m = d.length;
+        if (straight.has(a)) {                                   // along the image edge: one straight segment
+          const p0 = d[0], p3 = d[m - 1];
+          segs.push({ b: [p0, lerp(p0, p3, 1 / 3), lerp(p0, p3, 2 / 3), p3], a, z, corner: true, fixed: true });
+          continue;
+        }
         const out = []; out.r = [];
         fitCubic(d, 0, m - 1, norm(sub(d[Math.min(2, m - 1)], d[0])), norm(sub(d[Math.max(m - 3, 0)], d[m - 1])), err, out);
         out.forEach((b, i) => segs.push({ b, a: a + out.r[i][0], z: a + out.r[i][1], corner: i === 0 }));
@@ -229,7 +247,7 @@
       let best = null;
       for (let i = 0; i < segs.length; i++) {
         const j = (i + 1) % segs.length;
-        if (segs[j].corner) continue;                              // the node between them is a corner: keep it
+        if (segs[j].corner || segs[i].fixed) continue;             // the node between them is a corner: keep it
         const m = tryMerge(segs[i], segs[j]);
         if (m && (!best || m.e < best.m.e)) best = { i, j, m };
       }

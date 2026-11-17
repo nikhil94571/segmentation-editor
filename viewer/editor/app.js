@@ -41,7 +41,7 @@
   /* ---------------- session ---------------- */
   const pts = (ring) => ring.map(([x, y]) => ({ x, y }));
   const fitTol = () => (S.meta && S.meta.fit_tol) || FIT_TOL;   // tiled model output: a quarter of a tile
-  const fitRings = (rings) => rings.map((r) => (S.meta && S.meta.fit === "smooth" ? G.fitSmoothClosed : G.fitClosed)(pts(r), fitTol()))
+  const fitRings = (rings) => rings.map((r) => (S.meta && S.meta.fit === "smooth" ? G.fitSmoothClosed(pts(r), fitTol(), 2, { w: S.meta.width, h: S.meta.height }) : G.fitClosed(pts(r), fitTol())))
     .filter((p) => p.nodes.length >= 1 && p.segs.length >= 1);   // smooth: as few nodes as the tolerance allows
 
   async function openSession(sid) {
@@ -962,53 +962,119 @@
     try {
       await saveNow();                                          // the image being left is saved first
       $("sessionName").textContent = "Opening " + S.lib.cases[i].name + "…";
+      if (S.img) cv.classList.add("switching");                 // the old image dims while the next one loads
       const j = await api("/api/editor/library/open", { id: S.lib.id, index: i });
       S.caseIndex = i; store.set("seg-editor-idx-" + S.lib.id, i);
       await openSession(j.id); renderNav();
     } catch (e) { toast(e.message); if (S.meta) $("sessionName").textContent = S.meta.name; }
+    cv.classList.remove("switching");
     opening = false;
   }
 
+  /* Anything that opens or closes changes height smoothly (respecting reduced motion). */
+  const REDUCE = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function animateHeight(el, from, to, ms = 260, fade = true) {
+    return new Promise((done) => {
+      if (REDUCE || !el) return done();
+      Object.assign(el.style, { overflow: "hidden", height: from + "px", opacity: fade ? (from < to ? "0" : "1") : "", transition: "none" });
+      void el.offsetHeight;
+      Object.assign(el.style, { transition: `height ${ms}ms cubic-bezier(.2,.7,.2,1)` + (fade ? `, opacity ${Math.round(ms * 0.8)}ms ease` : ""), height: to + "px", opacity: fade ? (from < to ? "1" : "0") : "" });
+      setTimeout(() => { Object.assign(el.style, { overflow: "", height: "", opacity: "", transition: "" }); done(); }, ms + 30);
+    });
+  }
+  const expand = (el) => animateHeight(el, 0, el.scrollHeight);
+  /* A dialog whose contents change (tabs, export progress, a library's images) glides to its new height. */
+  function smoothResize(modal, body) {
+    let last = modal.getBoundingClientRect().height, busy = false;
+    new ResizeObserver(() => { if (!busy) last = modal.getBoundingClientRect().height; }).observe(modal);
+    new MutationObserver(() => {
+      if (busy) return;
+      const to = modal.getBoundingClientRect().height;
+      if (Math.abs(to - last) < 3 || !modal.closest(".backdrop.show")) { last = to; return; }
+      busy = true; const from = last; last = to;
+      animateHeight(modal, from, to, 240, false).then(() => { busy = false; last = modal.getBoundingClientRect().height; });
+    }).observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
+  }
+  /* "Choose the files by hand" and other folding sections open and close smoothly. */
+  function wireDetails(d) {
+    const sum = d.querySelector("summary");
+    sum.addEventListener("click", async (e) => {
+      e.preventDefault();
+      const shut = sum.getBoundingClientRect().height + parseFloat(getComputedStyle(sum).marginBottom || 0);
+      if (!d.open) { d.open = true; await animateHeight(d, shut, d.scrollHeight, 280, false); }
+      else { await animateHeight(d, d.getBoundingClientRect().height, sum.getBoundingClientRect().height, 240, false); d.open = false; }
+    });
+  }
+  const collapse = (el) => animateHeight(el, el.getBoundingClientRect().height, 0);
+
   async function showOpen() {
     $("openModal").classList.add("show"); $("importErr").textContent = ""; $("libErr").textContent = "";
-    S.pick = null; $("preview").hidden = true;
+    S.pick = null; S.pickLib = null; $("preview").hidden = true;
     if (S.lib) { try { await saveNow(); S.lib = await api("/api/editor/library?id=" + encodeURIComponent(S.lib.id)); } catch (e) {} }
+    S.libCases = S.lib ? { [S.lib.id]: S.lib.cases } : {};
+    S.libOpen = S.lib && !S.libShut ? S.lib.id : null;
     await renderLibraries();
   }
-  /* First click on an image selects it and shows a preview; clicking it again (or Enter) opens it. */
-  function pickCase(i) {
-    if (!S.lib || i < 0 || i >= S.lib.cases.length) return;
-    if (i === S.pick) return openPicked();
-    S.pick = i;
-    $("libList").querySelectorAll("[data-case]").forEach((b) => { const on = +b.dataset.case === i; b.classList.toggle("sel", on); if (on) b.scrollIntoView({ block: "nearest" }); });
+  /* First click on an image (in any library) selects it and shows a preview; clicking it again, double-clicking,
+     or Enter opens it, switching to its library if that is another one. */
+  const casesOf = (lid) => (S.libCases && S.libCases[lid]) || (S.lib && S.lib.id === lid ? S.lib.cases : null);
+  function pickCase(i, lid) {
+    lid = lid || (S.lib && S.lib.id);
+    const cases = casesOf(lid);
+    if (!cases || i < 0 || i >= cases.length) return;
+    if (i === S.pick && lid === S.pickLib) return openPicked();
+    S.pick = i; S.pickLib = lid;
+    $("libList").querySelectorAll("[data-case]").forEach((b) => { const on = +b.dataset.case === i && b.dataset.lid === lid; b.classList.toggle("sel", on); if (on) b.scrollIntoView({ block: "nearest" }); });
     const pv = $("preview"), m = document.querySelector("#openModal .modal").getBoundingClientRect();
-    $("previewImg").src = `/api/editor/library/preview?id=${encodeURIComponent(S.lib.id)}&index=${i}&t=${Date.now()}`;
-    $("previewName").textContent = S.lib.cases[i].name;
+    $("previewImg").src = `/api/editor/library/preview?id=${encodeURIComponent(lid)}&index=${i}&t=${Date.now()}`;
+    $("previewName").textContent = cases[i].name;
     pv.hidden = false;
     pv.style.left = Math.min(m.right + 16, window.innerWidth - 312) + "px";      // beside the dialog, with a gap
     pv.style.top = Math.max(12, Math.min(m.top + 96, window.innerHeight - 370)) + "px";
   }
   async function openPicked() {
-    const i = S.pick; if (i == null) return;
-    $("openModal").classList.remove("show"); S.pick = null; $("preview").hidden = true;
+    const i = S.pick, lid = S.pickLib; if (i == null) return;
+    S.pick = null; $("preview").hidden = true;
+    if (!S.lib || lid !== S.lib.id) {                          // an image of another library: switch to it
+      $("libErr").textContent = "Opening…";
+      try { S.libShut = false; await useLibrary(lid, i); $("openModal").classList.remove("show"); $("libErr").textContent = ""; }
+      catch (e) { $("libErr").textContent = e.message; }
+      return;
+    }
+    $("openModal").classList.remove("show");
     await openCase(i);
+  }
+  async function toggleLib(id) {                                // show or hide a library's images, without opening it
+    S.pick = null; $("preview").hidden = true;
+    const old = $("libList").querySelector(".cases");
+    if (old) await collapse(old);
+    S.libOpen = S.libOpen === id ? null : id;
+    if (S.lib && id === S.lib.id) S.libShut = S.libOpen !== id;
+    if (S.libOpen && !casesOf(S.libOpen)) {
+      try { S.libCases[S.libOpen] = (await api("/api/editor/library?id=" + encodeURIComponent(S.libOpen))).cases; } catch (e) { $("libErr").textContent = e.message; S.libOpen = null; }
+    }
+    await renderLibraries();
+    const now = $("libList").querySelector(".cases");
+    if (now) await expand(now);
   }
   async function renderLibraries() {
     let j; try { j = await api("/api/editor/libraries"); } catch (e) { $("libErr").textContent = e.message; return; }
     const cur = S.lib && S.lib.id;
     $("libList").innerHTML = j.libraries.length ? j.libraries.map((l) => `
-      <div class="li ${l.id === cur ? "current" : ""} ${l.id === cur && S.libShut ? "shut" : ""}" data-lib="${esc(l.id)}" ${l.id === cur ? 'title="Click to show or hide its images"' : ""}>
-        ${l.id === cur ? '<svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg>' : ""}<span class="q-name" data-name>${esc(l.name)}</span>
+      <div class="li ${l.id === cur ? "current" : ""} ${l.id === S.libOpen ? "open" : "shut"}" data-lib="${esc(l.id)}" title="Click to show or hide its images">
+        <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="q-name" data-name>${esc(l.name)}</span>
         <span class="meta">${l.count} image${l.count === 1 ? "" : "s"}${l.done ? ` · ${l.done} done` : ""}${l.edited ? ` · ${l.edited} edited` : ""}</span>
         ${l.id === cur ? '<span class="tag cur">Working on this</span>' : '<button class="btn" data-act="use">Work on this</button>'}
         <button class="btn" data-act="rename">Rename</button>
         ${S.hosted && l.id === "practice" ? "" : '<button class="btn danger" data-act="delete">Delete</button>'}
-      </div>${l.id === cur && !S.libShut ? `<div class="cases">${S.lib.cases.map((c, i) => `<button class="${i === S.caseIndex ? "on" : ""} ${i === S.pick ? "sel" : ""}" data-case="${i}"><span class="q-name">${esc(c.name)}</span>${c.done ? '<span class="tag done">done</span>' : c.edited ? '<span class="tag">edited</span>' : ""}</button>`).join("")}</div>` : ""}`).join("")
+      </div>${l.id === S.libOpen && casesOf(l.id) ? `<div class="cases">${casesOf(l.id).map((c, i) => `<button class="${l.id === cur && i === S.caseIndex ? "on" : ""} ${l.id === S.pickLib && i === S.pick ? "sel" : ""}" data-case="${i}" data-lid="${esc(l.id)}"><span class="q-name">${esc(c.name)}</span>${c.done ? '<span class="tag done">done</span>' : c.edited ? '<span class="tag">edited</span>' : ""}</button>`).join("")}</div>` : ""}`).join("")
       : '<p class="note">No libraries yet. Import a folder of images below.</p>';
-    $("libList").querySelectorAll("[data-case]").forEach((b) => (b.onclick = () => pickCase(+b.dataset.case)));
+    $("libList").querySelectorAll("[data-case]").forEach((b) => {
+      b.onclick = () => pickCase(+b.dataset.case, b.dataset.lid);
+      b.ondblclick = () => { if (S.pick !== +b.dataset.case || S.pickLib !== b.dataset.lid) { S.pick = +b.dataset.case; S.pickLib = b.dataset.lid; } openPicked(); };
+    });
     if (S.pick == null) $("preview").hidden = true;
-    const row = $("libList").querySelector(".li.current");      // clicking the open library's row folds its list of images away
-    if (row) row.onclick = (e) => { if (e.target.closest("button, input")) return; S.libShut = !S.libShut; S.pick = null; renderLibraries(); };
+    $("libList").querySelectorAll(".li").forEach((row) => (row.onclick = (e) => { if (e.target.closest("button, input")) return; toggleLib(row.dataset.lib); }));
     $("libList").querySelectorAll("[data-act]").forEach((b) => (b.onclick = async () => {
       const row = b.closest("[data-lib]"), id = row.dataset.lib, act = b.dataset.act;
       try {
@@ -1087,7 +1153,6 @@
       : `<span class="fixed">${esc(cur ? base(cur) : "–")}</span>`}</label>`;
     return row("Outlines from", ids[0], opts.outlines.map((o) => o.file), chosen.outlines) + row("Image", ids[1], opts.image, chosen.image);
   };
-  const notesHtml = (notes) => (notes && notes.length ? `<div class="pk-notes-h">Notes:</div><ul class="pk-notes">${notes.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "");
   const dropFiles = (files) => (files || []).filter((x) => !x.path.split("/").some((part) => part.startsWith(".")));
 
   /* A library: upload, then a panel over the dialog lists every image with the files it is made from, any of
@@ -1111,14 +1176,21 @@
   }
   async function showReview(id, skipped) {
     const lib = await api("/api/editor/library?id=" + encodeURIComponent(id));
-    const accept = async () => {
-      $("libReview").hidden = true; $("libErr").textContent = "";
-      try { S.libShut = false; await useLibrary(id, 0); $("openModal").classList.remove("show"); } catch (e) { $("libErr").textContent = e.message; }
+    const accept = async () => {                                  // stays up, saying so, until the first image is open
+      const btns = [...document.querySelectorAll("#libReview [data-accept]")];
+      btns.forEach((b) => { b.disabled = true; b.textContent = "Opening…"; });
+      try {
+        S.libShut = false; await useLibrary(id, 0);
+        $("openModal").classList.remove("show");
+        const rv = $("libReview"); rv.classList.add("closing");
+        setTimeout(() => { rv.hidden = true; rv.classList.remove("closing"); }, 220);
+      } catch (e) { $("revErr").textContent = e.message; }
+      btns.forEach((b) => { b.disabled = false; b.textContent = "Accept"; });
     };
-    if (!lib.cases.some((c) => c.choosable)) return accept();        // files paired by name: nothing to choose
+    if (!lib.cases.some((c) => c.choosable)) { try { S.libShut = false; await useLibrary(id, 0); $("openModal").classList.remove("show"); } catch (e) { $("libErr").textContent = e.message; } return; }
     $("revTitle").textContent = lib.name;
     const item = (c, i) => `<div class="pk-head"><span>Folder name:</span><b>${esc(c.name)}</b></div>` +
-      (c.choosable ? choiceRows(c.options, c.chosen, [`rvOut${i}`, `rvImg${i}`]) + notesHtml(c.notes) : `<span class="note" style="margin:0">Files paired by name</span>`);
+      (c.choosable ? choiceRows(c.options, c.chosen, [`rvOut${i}`, `rvImg${i}`]) : `<span class="note" style="margin:0">Files paired by name</span>`);
     $("revList").innerHTML = lib.cases.map((c, i) => `<div class="rev-item" data-i="${i}">${item(c, i)}</div>`).join("");
     $("revErr").textContent = skipped && skipped.length ? `Skipped: ${skipped.join(", ")}` : "";
     const wire = (el, i) => {
@@ -1196,7 +1268,6 @@
     const choice = () => ({ id: oneId, outlines: $("pkOut") ? $("pkOut").value : b.chosen.outlines, image: $("pkImg") ? $("pkImg").value : b.chosen.image });
     oneBox.show(`<div class="pk-head"><span>Folder name:</span><b>${esc(b.name)}</b><button class="btn" id="pkRemove">Remove</button></div>
       ${choiceRows(b.options, b.chosen, ["pkOut", "pkImg"])}
-      ${notesHtml(b.notes)}
       <div class="actions"><button class="btn primary" id="pkOpen">Open</button></div>`, () => {
       const rescan = async (body) => { try { $("importErr").textContent = ""; showPicks(await api("/api/editor/bundle/scan", body)); } catch (e) { $("importErr").textContent = e.message; } };
       if ($("pkOut")) $("pkOut").onchange = () => rescan({ id: oneId, outlines: $("pkOut").value });
@@ -1251,6 +1322,9 @@
   /* ---------------- wiring ---------------- */
   $("prevCase").onclick = () => openCase(S.caseIndex - 1); $("nextCase").onclick = () => openCase(S.caseIndex + 1);
   wireLibraryDrop(); wireOneDrop(); $("doneBtn").onclick = toggleDone;
+  document.querySelectorAll("details.more").forEach(wireDetails);
+  smoothResize(document.querySelector("#openModal .modal"), document.querySelector("#openModal .modal"));
+  smoothResize(document.querySelector("#exportModal .modal"), $("exportBody"));
   $("open").onclick = showOpen; $("openEmpty").onclick = showOpen; $("export").onclick = () => showExport();
   $("undo").onclick = undo; $("redo").onclick = redo;
   $("zoomIn").onclick = () => zoomAt(1.25); $("zoomOut").onclick = () => zoomAt(0.8); $("fit").onclick = fitView;
@@ -1288,7 +1362,11 @@
   document.querySelectorAll(".side [data-fold]").forEach((b) => {   // Display, Regions and Measure fold away
     const sec = b.closest(".sec"), key = "seg-editor-fold-" + b.dataset.fold;
     if (store.get(key) === "shut") sec.classList.add("shut");
-    b.onclick = () => store.set(key, sec.classList.toggle("shut") ? "shut" : "open");
+    const body = sec.querySelector(":scope > .sec-b");
+    b.onclick = async () => {
+      if (sec.classList.contains("shut")) { sec.classList.remove("shut", "folding"); store.set(key, "open"); await expand(body); }
+      else { sec.classList.add("shut", "folding"); store.set(key, "shut"); await collapse(body); if (sec.classList.contains("shut")) sec.classList.remove("folding"); }
+    };
   });
   $("labelPop").addEventListener("click", (e) => {
     const r = region(S.labelFor); if (!r) return;
@@ -1339,7 +1417,7 @@
     const mod = e.metaKey || e.ctrlKey, k = e.key.toLowerCase();
     if ($("openModal").classList.contains("show") && S.pick != null && ["Enter", "ArrowDown", "ArrowUp"].includes(e.key)) {
       e.preventDefault();
-      if (e.key === "Enter") openPicked(); else pickCase(Math.min(S.lib.cases.length - 1, Math.max(0, S.pick + (e.key === "ArrowDown" ? 1 : -1))));
+      if (e.key === "Enter") openPicked(); else pickCase(Math.min(casesOf(S.pickLib).length - 1, Math.max(0, S.pick + (e.key === "ArrowDown" ? 1 : -1))), S.pickLib);
       return;
     }
     if (document.querySelector(".backdrop.show")) { if (e.key === "Escape") { document.querySelectorAll(".backdrop.show").forEach((m) => m.classList.remove("show")); window.Tutorial.pause(); } return; }

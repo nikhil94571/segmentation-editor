@@ -49,18 +49,21 @@ Some models answer once per tile rather than once per pixel (a vision transforme
 patch). Enlarged to the image, that answer is a staircase, and traced as it is every stair corner becomes a node.
 `coarse.py` recognises such output (from a raw `.npz`, or from the tiles themselves in a mask, probability map or
 ImageJ file), places each tile's value at the tile's centre, interpolates the logits smoothly and cuts at the
-model's own threshold (read from the `.npz` when it has one; otherwise 0.675). Gaps and notches narrower than about
-0.6 of a tile are closed and blobs smaller than two tiles dropped, both being below what the model resolves.
+model's own threshold (read from the `.npz` when it has one; otherwise 0.675). The smooth outline only decides what
+happens between tile centres: at every centre the model's own yes or no is kept. Gaps and notches narrower than about
+0.6 of a tile are closed and specks the smoothing makes between tiles removed, but never where the model said
+otherwise, and a region or hole the model marked with a single tile is kept, about a tile across.
 
 Curves are then fitted with as few nodes as a third of a tile allows (`G.fitSmoothClosed` in `geom.js`): a first
 fit splits wherever the curve strays, then nodes are taken away one at a time, always the one whose removal strays
 least, while the single bent segment that replaces two stays within tolerance everywhere. A sharp corner (where an
-outline meets the image edge, or pinches to a point) is kept as one node. A smooth oval comes out as two nodes.
+outline meets the image edge, or pinches to a point) is kept as one node, and a stretch along the image's edge is
+a straight line, so no curve bows out past the image. A smooth oval comes out as two nodes.
 
 Measured on 17 Nov 2026 (`dev/compare.py`) on 11 synthetic folders built to match a real pipeline's output format
 (`dev/make_coarse_cases.py`: 128 × 154 tiles over a 2048 × 2467 image): overlap with the reference outline rose in
 every one (0.84–0.94 before, 0.87–0.96 after), the area shrank by 0.3–2.2%, as rounded corners do, and the
-editor's nodes went from 2,576 to 547. Blurring the tile values first was tried and dropped: it cut nodes further but
+editor's nodes went from 2,576 to 639 (every one- or two-tile mark the model made is kept). Blurring the tile values first was tried and dropped: it cut nodes further but
 shrank thin structures and lowered the overlap (0.895 to 0.826 at one tile of blur).
 `dev/check_coarse.py` checks grid detection, that smoothing does not shift outlines, and how files are chosen.
 

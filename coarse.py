@@ -86,6 +86,59 @@ def smooth_mask(mask_grid, shape, kind="stretch", blur=0.0):
     return np.clip(upsample(g, shape, kind), 0, 1).astype(np.float32)
 
 
+def tile_centres(shape, rows, cols, kind="stretch"):
+    """Pixel (row, column) of every tile's centre, as two (rows, cols) arrays."""
+    cy = np.minimum(np.floor(_centres(shape[0], rows, kind)).astype(int), shape[0] - 1)
+    cx = np.minimum(np.floor(_centres(shape[1], cols, kind)).astype(int), shape[1] - 1)
+    return np.meshgrid(cy, cx, indexing="ij")
+
+
+def _stamp(m, y, x, r, value):
+    y0, y1, x0, x1 = max(0, int(y - r) - 1), min(m.shape[0], int(y + r) + 2), max(0, int(x - r) - 1), min(m.shape[1], int(x + r) + 2)
+    yy, xx = np.ogrid[y0:y1, x0:x1]
+    m[y0:y1, x0:x1][(yy - y) ** 2 + (xx - x) ** 2 <= r * r] = value
+
+
+def respect_tiles(mask, yes, kind="stretch", close_r=0, min_r=0.0):
+    """Tidy a smooth mask without ever overruling the model where it answered.
+
+    mask: the smooth decision at every pixel; yes: the model's own yes/no per tile. The smooth mask only decides
+    what happens between tile centres, so:
+      - narrow gaps and notches (narrower than 2 * close_r) are closed, unless one holds a tile the model said no to;
+      - specks the smoothing made between tiles are removed, but never a region holding a tile the model said yes to;
+      - pinholes are filled, but never a hole holding a tile the model said no to;
+      - every tile centre ends up on the model's side, and a region or hole the model marked is at least min_r px
+        in radius, so a one-tile mark stays visible and clickable (deleting one is easier than finding one)."""
+    from skimage.morphology import disk
+    m = mask.copy()
+    yy, xx = tile_centres(m.shape, yes.shape[0], yes.shape[1], kind)
+    yin, xin, yout, xout = yy[yes], xx[yes], yy[~yes], xx[~yes]
+    if close_r:
+        pad = 2 * close_r
+        closed = ndi.binary_closing(np.pad(m, pad, mode="edge"), disk(close_r))[pad:-pad, pad:-pad]
+        added = closed & ~m
+        lab, _ = ndi.label(added)
+        m |= added & ~np.isin(lab, np.unique(lab[yout, xout])[1:])
+    lab, n = ndi.label(m, structure=np.ones((3, 3)))
+    keep = np.zeros(n + 1, bool)
+    keep[lab[yin, xin]] = True
+    keep[0] = False
+    m = keep[lab]
+    lab, n = ndi.label(~m)
+    hole_kept = np.zeros(n + 1, bool)
+    hole_kept[lab[yout, xout]] = True
+    m |= ~hole_kept[lab] & (lab > 0)
+    if min_r:
+        area = np.pi * min_r * min_r
+        for want, ys, xs in ((True, yin, xin), (False, yout, xout)):
+            lab, _ = ndi.label(m if want else ~m, structure=np.ones((3, 3)) if want else None)
+            sizes = np.bincount(lab.ravel())
+            for y, x in zip(ys, xs):
+                if lab[y, x] == 0 or sizes[lab[y, x]] < area:
+                    _stamp(m, y, x, min_r, want)
+    return m
+
+
 def _transitions(a, axis):
     d = a[:, 1:] != a[:, :-1] if axis == 1 else a[1:, :] != a[:-1, :]
     return np.nonzero(d.any(axis=0 if axis == 1 else 1))[0] + 1

@@ -163,7 +163,7 @@ button.b { font: inherit; padding: 5px 10px; border-radius: 7px; border: 1px sol
     const keep = S.c && S.img && S.img.width === img.width && S.img.height === img.height;
     S.c = c; S.img = img;
     S.oldPaths = c.before.regions.map((rs) => fit(rs, c.before.fit_tol));
-    S.newPaths = c.after.regions.map((rs) => (c.fit === "smooth" ? rs.map((r) => G.fitSmoothClosed(r.map(([x, y]) => ({ x, y })), c.fit_tol)).filter((p) => p.nodes.length && p.segs.length) : fit(rs, c.fit_tol)));
+    S.newPaths = c.after.regions.map((rs) => (c.fit === "smooth" ? rs.map((r) => G.fitSmoothClosed(r.map(([x, y]) => ({ x, y })), c.fit_tol, 2, { w: c.width, h: c.height })).filter((p) => p.nodes.length && p.segs.length) : fit(rs, c.fit_tol)));
     const before = count(S.oldPaths), after = count(S.newPaths), st = c.stats;
     $("title").textContent = c.name;
     $("stats").innerHTML = `Nodes <b>${before} → ${after}</b>` +

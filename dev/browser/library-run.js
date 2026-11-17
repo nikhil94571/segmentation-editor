@@ -36,10 +36,22 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     await new Promise((r) => setTimeout(r, 2500)); return document.querySelector("#revList .rev-item").innerText; })()`);
   console.log("AFTER CHANGING THE FIRST IMAGE'S OUTLINES:\n" + changed);
   await ev(`document.querySelector("#libReview [data-accept]").click()`);
+  await sleep(120); console.log("ACCEPT BUTTON WHILE OPENING:", await ev(`(() => { const b = document.querySelector("#libReview [data-accept]"); return b.textContent + (b.disabled ? " (disabled)" : "") + " | review shown: " + !document.getElementById("libReview").hidden; })()`));
+  await shot(out + "-accepting.png");
   for (let i = 0; i < 120; i++) { await sleep(500); if (await ev(`!document.getElementById("openModal").classList.contains("show")`)) break; }
   await sleep(1500);
   console.log("OPENED:", await ev(`document.getElementById("sessionName").textContent + " · " + document.getElementById("casePos").textContent`));
   await shot(out + "-opened.png");
+  // browse another library without choosing it, then open one of its images with a double-click
+  await ev(`document.getElementById("open").click()`); await sleep(900);
+  await ev(`[...document.querySelectorAll("#libList .li")].find((r) => r.textContent.includes("Practice")).click()`); await sleep(900);
+  console.log("PRACTICE EXPANDED WITHOUT WORKING ON IT:", await ev(`document.querySelectorAll("#libList .cases [data-lid=practice]").length + " images shown; still working on " + document.querySelector(".li.current .q-name").textContent`));
+  await ev(`document.querySelectorAll("#libList .cases [data-lid=practice]")[2].click()`); await sleep(1200);
+  await shot(out + "-browse.png");
+  await ev(`document.querySelectorAll("#libList .cases [data-lid=practice]")[2].dispatchEvent(new MouseEvent("dblclick", { bubbles: true }))`);
+  for (let i = 0; i < 60; i++) { await sleep(500); if (await ev(`!document.getElementById("openModal").classList.contains("show")`)) break; }
+  await sleep(800);
+  console.log("AFTER DOUBLE-CLICK:", await ev(`window.__editor.S.lib.id + " · " + document.getElementById("casePos").textContent + " · " + document.getElementById("sessionName").textContent`));
   console.log("console:", logs.length ? logs.join(" | ") : "clean");
   ws.close();
 })();

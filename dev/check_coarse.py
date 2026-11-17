@@ -22,6 +22,7 @@ os.environ["DATA_DIR"] = str(TMP / "data")
 sys.path.insert(0, str(ROOT))
 import coarse  # noqa: E402
 import editor_backend as eb  # noqa: E402
+from scipy.ndimage import binary_dilation as ndi_binary_dilation, binary_erosion as ndi_binary_erosion, label as ndi_label  # noqa: E402
 from imagej2mask import _fill  # noqa: E402
 
 SYN = ROOT / "data" / "synthetic"
@@ -136,6 +137,12 @@ try:
     check("only the pictures: read as a shaded picture", sb["route"] == "screenshot")
 except ValueError as e:
     check("only the pictures: read as a shaded picture", False, str(e))
+no_ref = variant(f0, lambda n: n != f"{f0.name}.tif")
+outs = []
+for folder in (f0, no_ref):
+    b2 = eb.scan_bundle(folder, files_of(folder))
+    outs.append(json.dumps([r["rings"] for r in eb.import_session(b2["route"], {k: folder / v for k, v in b2["files"].items()}, name="ref")["regions"]]))
+check("the expert's reference plays no part: outlines identical with and without it in the folder", outs[0] == outs[1])
 
 # ---- import: smoothing, cut-off, node tolerance, export ----
 eb.list_libraries()
@@ -143,6 +150,32 @@ sb = eb.scan_bundle(f0, files_of(f0))
 meta = eb.import_session(sb["route"], {k: f0 / v for k, v in sb["files"].items()}, name=f0.name)
 check("import: tiled output recognised and smoothed", meta.get("coarse", {}).get("grid") == [128, 154], str(meta.get("coarse")))
 check("import: the cut-off from the model's file", abs(meta["threshold"] - 0.675) < 1e-6)
+z0 = coarse.read_npz(f0 / sb["files"]["model"])
+yes0 = z0["prob"] > z0["threshold"]
+lab0 = np.load(eb._sdir(meta["id"]) / "labels.npy") > 0
+cyy, cxx = coarse.tile_centres(lab0.shape, *yes0.shape)
+check("import: every tile centre is on the model's side (smoothing only decides between centres)", (lab0[cyy, cxx] == yes0).all(),
+      f"{(lab0[cyy, cxx] != yes0).sum()} of {yes0.size} differ")
+# a one-tile region and a one-tile hole, put into a copy of the model's output: both must survive
+syn = TMP / "onetile" / f0.name
+syn.mkdir(parents=True)
+for q in files_of(f0):
+    if not q.name.endswith(".npz"):
+        (syn / q.name).symlink_to(q)
+with np.load(f0 / sb["files"]["model"]) as zz:
+    arrs = {k: zz[k] for k in zz.files}
+p1 = arrs["probabilities"].copy()
+far = np.argwhere(~ndi_binary_dilation(yes0, iterations=4))[len(np.argwhere(~ndi_binary_dilation(yes0, iterations=4))) // 2]
+inner = np.argwhere(ndi_binary_erosion(yes0, iterations=3))[0]
+p1[tuple(far)] = 0.70                                    # just over the cut-off, alone
+p1[tuple(inner)] = 0.60                                  # just under, inside a region
+arrs.update(probabilities=p1, logits=np.log(p1 / (1 - p1)).astype(np.float32), predicted_mask=p1 > arrs["probability_threshold"])
+np.savez(syn / sb["files"]["model"], **arrs)
+m1 = eb.import_session("grid", {"image": syn / sb["files"]["image"], "model": syn / sb["files"]["model"]}, name="onetile")
+l1 = np.load(eb._sdir(m1["id"]) / "labels.npy") > 0
+check("a one-tile region the model marked is kept, and big enough to see", l1[cyy[tuple(far)], cxx[tuple(far)]]
+      and ndi_label(l1)[0][cyy[tuple(far)], cxx[tuple(far)]] and (ndi_label(l1)[0] == ndi_label(l1)[0][cyy[tuple(far)], cxx[tuple(far)]]).sum() > 100)
+check("a one-tile hole the model marked is kept", not l1[cyy[tuple(inner)], cxx[tuple(inner)]])
 check("import: curves fitted to a third of a tile, with the node-removing fitter", meta["fit_tol"] == 5.33 and meta.get("fit") == "smooth")
 check("import: source image name kept for the export", meta.get("source_name") == f"{f0.name}.tif")
 regions = [{"name": r["name"], "rings": r["rings"]} for r in meta["regions"]]
@@ -204,11 +237,18 @@ for (let i = 0; i <= 100; i++) stad.push({{ x: 500 - 4 * i, y: 220 + Math.cos(i)
 for (let i = 0; i <= 60; i++) {{ const t = -Math.PI / 2 - i / 60 * Math.PI; stad.push({{ x: 100 + 60 * Math.cos(t), y: 160 - 60 * Math.sin(t) }}); }}
 const far = (p, ring) => {{ const fl = G.flatten(p, 0.5); return Math.max(...ring.map((q) => Math.min(...fl.map((f) => Math.hypot(f.x - q.x, f.y - q.y))))); }};
 const a = G.fitSmoothClosed(ring, 5.33), b = G.fitSmoothClosed(stad, 5.33), c = G.fitClosed(ring, 4);
-console.log(JSON.stringify({{ ellipse: a.nodes.length, ellipse_far: far(a, ring), stadium: b.nodes.length, stadium_far: far(b, stad), old_ellipse: c.nodes.length }}));
+// a region in the image's top-left corner: along the two edges it must stay straight and inside the image
+const cor = []; for (let i = 0; i <= 80; i++) cor.push({{ x: 4 * i, y: 0 }});
+for (let i = 1; i <= 60; i++) {{ const t = i / 60 * Math.PI / 2; cor.push({{ x: 320 * Math.cos(t) + 6 * Math.sin(9 * t), y: 220 * Math.sin(t) }}); }}
+for (let i = 80; i >= 1; i--) cor.push({{ x: 0, y: 220 * i / 80 }});
+const e = G.fitSmoothClosed(cor, 5.33, 2, {{ w: 1000, h: 800 }}), fl = G.flatten(e, 0.5);
+console.log(JSON.stringify({{ ellipse: a.nodes.length, ellipse_far: far(a, ring), stadium: b.nodes.length, stadium_far: far(b, stad), old_ellipse: c.nodes.length,
+  edge_outside: Math.min(...fl.map((q) => Math.min(q.x, q.y))) }}));
 """
 fit = json.loads(subprocess.check_output(["node", "-e", js]))
 check("fitter: a wobbly ellipse in 4 nodes or fewer, within tolerance", fit["ellipse"] <= 4 and fit["ellipse_far"] <= 5.4, str(fit))
 check("fitter: two straight sides and two round ends in 6 nodes or fewer, within tolerance", fit["stadium"] <= 6 and fit["stadium_far"] <= 5.4, str(fit))
+check("fitter: along the image's edge the outline is straight and never leaves the image", fit["edge_outside"] > -0.01, str(fit["edge_outside"]))
 
 # ---- the practice images are unchanged ----
 lib = eb._read_lib("practice")

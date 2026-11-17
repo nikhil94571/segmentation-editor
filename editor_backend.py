@@ -178,11 +178,11 @@ def _coarse(grid_values, shape, kind, binary, threshold, name, route, base, sid,
     rows, cols = grid_values.shape
     cell = (shape[0] / rows, shape[1] / cols)
     tile = cell[0] * cell[1]
-    mask = score > threshold
-    r = max(1, round(0.6 * min(cell)))                            # gaps and notches narrower than ~0.6 tile are
-    mask = ndi.binary_closing(np.pad(mask, 2 * r, mode="edge"), disk(r))[2 * r:-2 * r, 2 * r:-2 * r]   # below the model's resolution
-    mask = h2.clean(mask, int(2 * tile), 200)                     # so are blobs smaller than two tiles
-    raw = coarse.expand(grid_values > (0.5 if binary else threshold), shape, kind)
+    yes = grid_values > (0.5 if binary else threshold)            # what the model said at each tile
+    # the smooth outline decides only between tile centres: tidied (narrow gaps, specks, pinholes) without ever
+    # changing the model's answer at a tile, and with every one-tile mark kept big enough to see
+    mask = coarse.respect_tiles(score > threshold, yes, kind, close_r=max(1, round(0.6 * min(cell))), min_r=0.45 * min(cell))
+    raw = coarse.expand(yes, shape, kind)
     extra = {"fit_tol": round(max(FIT_TOL, min(cell) / 3), 2), "fit": "smooth",
              "coarse": {"grid": [rows, cols], "tile_px": [round(cell[0], 3), round(cell[1], 3)], "from": grid_from,
                         "regions_as_tiles": int(label(raw, connectivity=2).max()),
