@@ -18,6 +18,6 @@ primary_region = "syd"
     grace_period = "20s"
 
 [[vm]]
-  memory = "1gb"                   # 2048 px images and the grow/shrink re-cut need more than the 256 MB default
-  cpu_kind = "shared"
-  cpus = 1
+  memory = "2gb"
+  cpu_kind = "performance"         # a dedicated CPU: a shared one is cut to ~1/12 speed after a few seconds' work,
+  cpus = 1                         # which made opening a model's image ~40 s and exports minutes
