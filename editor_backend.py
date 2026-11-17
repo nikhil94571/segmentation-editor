@@ -29,7 +29,7 @@ from PIL import Image
 from roifile import roiwrite
 from scipy import ndimage as ndi
 from skimage.measure import approximate_polygon, label, regionprops
-from skimage.morphology import remove_small_holes, remove_small_objects
+from skimage.morphology import disk, remove_small_holes, remove_small_objects
 from skimage.segmentation import watershed
 
 import coarse
@@ -178,9 +178,12 @@ def _coarse(grid_values, shape, kind, binary, threshold, name, route, base, sid,
     rows, cols = grid_values.shape
     cell = (shape[0] / rows, shape[1] / cols)
     tile = cell[0] * cell[1]
-    mask = h2.clean(score > threshold, int(2 * tile), 200)        # smaller than two tiles is below what the model resolves
+    mask = score > threshold
+    r = max(1, round(0.6 * min(cell)))                            # gaps and notches narrower than ~0.6 tile are
+    mask = ndi.binary_closing(np.pad(mask, 2 * r, mode="edge"), disk(r))[2 * r:-2 * r, 2 * r:-2 * r]   # below the model's resolution
+    mask = h2.clean(mask, int(2 * tile), 200)                     # so are blobs smaller than two tiles
     raw = coarse.expand(grid_values > (0.5 if binary else threshold), shape, kind)
-    extra = {"fit_tol": round(max(FIT_TOL, min(cell) / 4), 2),
+    extra = {"fit_tol": round(max(FIT_TOL, min(cell) / 3), 2), "fit": "smooth",
              "coarse": {"grid": [rows, cols], "tile_px": [round(cell[0], 3), round(cell[1], 3)], "from": grid_from,
                         "regions_as_tiles": int(label(raw, connectivity=2).max()),
                         "regions_smoothed": int(label(mask, connectivity=2).max())},
@@ -469,7 +472,7 @@ def reveal(path):
     return {"ok": True}
 
 
-FORMATS = ("corrected_mask_tif", "mask_png", "overlay_png", "imagej_tif", "roiset_zip", "qupath_geojson")
+FORMATS = ("corrected_mask_tif", "corrected_mask_full_tif", "mask_png", "overlay_png", "imagej_tif", "roiset_zip", "qupath_geojson")
 _progress = {}                                   # job id -> {"done": n, "total": n}; polled by the page
 
 
@@ -516,12 +519,28 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
             rois += h2.imagej_rois(*geoms[-1], split=split)        # holes are true holes unless asked otherwise
 
     files = {}
+    src = _slug(Path(meta.get("source_name") or "").stem) or stem
+    full = meta.get("original") if "corrected_mask_full_tif" in want else None
     if "corrected_mask_tif" in want:
         # <image>_corrected_mask.tif: the image's size, one 8-bit channel, 0 = background, 255 = inside a region.
         # <image> is the name of the image the model was run on when the model's file says so.
-        src = _slug(Path(meta.get("source_name") or "").stem) or stem
-        tifffile.imwrite(out / f"{src}_corrected_mask.tif", (mask * 255).astype(np.uint8), photometric="minisblack")
-        files["corrected_mask_tif"] = f"{src}_corrected_mask.tif"
+        name = f"{src}_corrected_mask_{shape[1]}x{shape[0]}.tif" if full else f"{src}_corrected_mask.tif"
+        tifffile.imwrite(out / name, (mask * 255).astype(np.uint8), photometric="minisblack")
+        files["corrected_mask_tif"] = name
+    if full:
+        # the same mask at the size of the original the model's image was scaled from: the curves are drawn
+        # again at that size (not the small mask enlarged), so the edges stay smooth
+        W0, H0 = int(full["width"]), int(full["height"])
+        sx, sy = W0 / shape[1], H0 / shape[0]
+        big = np.zeros((H0, W0), bool)
+        for reg in regions:
+            m = np.zeros((H0, W0), bool)
+            for r in reg["rings"]:
+                if len(r) >= 3:
+                    m ^= _fill(np.asarray(r, float) * [sx, sy], (H0, W0))
+            big |= m
+        tifffile.imwrite(out / f"{src}_corrected_mask.tif", (big * 255).astype(np.uint8), photometric="minisblack")
+        files["corrected_mask_full_tif"] = f"{src}_corrected_mask.tif"
     if "mask_png" in want:
         Image.fromarray((mask * 255).astype(np.uint8)).save(out / f"{stem}_mask.png")
         files["mask_png"] = f"{stem}_mask.png"
@@ -758,7 +777,9 @@ def scan_bundle(root, paths):
         if len(shaded) > 1 and shaded[1]["shape"] == shaded[0]["shape"]:
             files["image"] = rel(shaded[-1])
         return {"route": "screenshot", "files": files, "picked": [f"Shaded picture: {shaded[0]['name']}"],
-                "notes": [], "reference": None, "options": {"image": [rel(p) for p in pictures], "outlines": []}}
+                "notes": [], "reference": None, "original": None,
+                "chosen": {"outlines": files["overlay"], "image": files.get("image") or files["overlay"]},
+                "options": {"image": [rel(p) for p in pictures], "outlines": []}}
     src, why = options[0]
     return _bundle_choice(root, items, src, why, None, options)
 
@@ -801,7 +822,7 @@ def _bundle_choice(root, items, src, why, image=None, options=None):
     if src["kind"] == "grid":
         route, files = "grid", {"image": rel(image), "model": rel(src)}
         if src.get("threshold") is not None:
-            notes.append(f"Cut-off {src['threshold']:g}, from the model's file.")
+            notes.append(f"Cut-off: {src['threshold']:.3g}")
     elif src["kind"] == "map":
         route, files = "model", {"image": rel(image), "model": rel(src)}
     elif src["kind"] == "picture":
@@ -809,17 +830,21 @@ def _bundle_choice(root, items, src, why, image=None, options=None):
     else:
         route, files = "imagej", {"imagej": rel(image), "rois": rel(src)}
     if image["shape"] != target and target:
-        notes.append(f"{image['name']} is {image['shape'][1]}x{image['shape'][0]}; it is scaled to the model "
-                     f"output's {target[1]}x{target[0]}.")
+        notes.append(f"Image scaled from {image['shape'][1]} × {image['shape'][0]} to {target[1]} × {target[0]}")
     reference = next((p for p in pictures if p.get("rois") and p is not src and p.get("blocky", 1) <= 0.95), None)
     if reference:
-        notes.append(f"{reference['name']} also has outlines, drawn by hand: kept as a reference, not used "
-                     "as the model's output.")
-    picked = [f"Outlines from {src['name']}: {why}", f"Image: {image['name']}"]
+        notes.append(f"{reference['name']} contains outlines that were discarded")
+    # a larger copy of the image with the same proportions (the original, before it was scaled for the model):
+    # the corrected mask can also be exported at its size
+    bigger = [p for p in pictures if target and p["shape"][0] > target[0] and
+              abs(p["shape"][0] / p["shape"][1] - target[0] / target[1]) < 0.01 * target[0] / target[1]]
+    original = max(bigger, key=lambda p: p["shape"][0], default=None)
     if options is None:
         options = []
-    return {"route": route, "files": files, "picked": picked, "notes": notes,
+    return {"route": route, "files": files, "picked": [f"Outlines: {src['name']}", f"Image: {image['name']}"],
+            "notes": notes, "chosen": {"outlines": rel(src), "image": rel(image)},
             "reference": rel(reference) if reference else None,
+            "original": {"file": rel(original), "width": original["shape"][1], "height": original["shape"][0]} if original else None,
             "options": {"image": [rel(p) for p in pictures],
                         "outlines": [{"file": rel(o), "what": w} for o, w in options]}}
 
@@ -878,6 +903,41 @@ def _pair_by_name(root, files):
     return cases, skipped
 
 
+def _bundle_case(b):
+    """The parts of a folder scan that a library keeps for one image."""
+    return {"route": b["route"], "files": b["files"], "picked": b["picked"], "notes": b["notes"],
+            "chosen": b["chosen"], "options": b["options"],
+            **({"reference": b["reference"]} if b.get("reference") else {}),
+            **({"original": b["original"]} if b.get("original") else {})}
+
+
+def library_choose(lid, index, outlines=None, image=None):
+    """Change which files one image of a library is made from (an image whose folder was read by content)."""
+    lib = _read_lib(lid)
+    if not 0 <= index < len(lib["cases"]):
+        raise ValueError("No such image in this library.")
+    c = lib["cases"][index]
+    if "dir" not in c:
+        raise ValueError("This image's files were paired by name; there is nothing to choose.")
+    root = _lib_root(lib)
+    files = [p for p in (root / c["dir"]).iterdir() if p.is_file()]
+    b = bundle_with(root, files, outlines, image)
+    if c.get("sid"):                                             # made from the old choice: make it again when opened
+        shutil.rmtree(_sdir(c["sid"]), ignore_errors=True)
+        c["sid"] = None
+    for k in ("reference", "original"):
+        c.pop(k, None)
+    c.update(_bundle_case(b))
+    _write_lib(lib)
+    return _case_view(c)
+
+
+def _case_view(c):
+    return {"name": c["name"], "route": c["route"], "edited": _edited(c), "done": bool(c.get("done")),
+            **{k: c[k] for k in ("picked", "notes", "chosen", "options") if c.get(k) is not None},
+            "choosable": "dir" in c}
+
+
 def _build_cases(root, files):
     """A library: every folder is looked at on its own. A folder holding several images paired by name
     (slide1_image.png + slide1_prob.tif, slide2_...) gives one image per pair; any other folder is one image's
@@ -907,8 +967,7 @@ def _build_cases(root, files):
             skipped.append(f"{d if str(d) != '.' else 'the top folder'} ({e})")
             continue
         name = d.name if str(d) != "." else Path(b["files"].get("image") or next(iter(b["files"].values()))).stem
-        cases.append({"name": name, "route": b["route"], "files": b["files"], "sid": None,
-                      "picked": b["picked"] + b["notes"], **({"reference": b["reference"]} if b["reference"] else {})})
+        cases.append({"name": name, "sid": None, "dir": str(d), **_bundle_case(b)})
     names = [c["name"] for c in cases]                            # two folders of the same name in different places
     for i, c in enumerate(cases):
         if names.count(c["name"]) > 1:
@@ -967,6 +1026,11 @@ def _bundle_dir(bid):
 
 def bundle_begin():
     import uuid
+    old = uploads() / "bundles"
+    if old.exists():                                            # uploads removed or never opened, after a day
+        for d in old.iterdir():
+            if d.is_dir() and time.time() - d.stat().st_mtime > 86400:
+                shutil.rmtree(d, ignore_errors=True)
     bid = "b" + uuid.uuid4().hex[:12]
     _bundle_dir(bid).mkdir(parents=True)
     return {"id": bid}
@@ -1021,13 +1085,15 @@ def bundle_open(bid, outlines=None, image=None, threshold=None):
     b = bundle_with(root, files, outlines, image)
     name = _bundle_name(root, b)
     meta = import_session(b["route"], {k: root / v for k, v in b["files"].items()}, name=name, threshold=threshold)
-    if b["notes"] or b["picked"]:
-        d = _sdir(meta["id"])
-        meta["picked"] = b["picked"]
-        meta["notes"] = (meta.get("notes") or []) + b["notes"]
-        (d / "meta.json").write_text(json.dumps(meta))
+    _patch_meta(meta, picked=b["picked"], notes=(meta.get("notes") or []) + b["notes"],
+                **({"original": b["original"]} if b.get("original") else {}))
     shutil.rmtree(_bundle_dir(bid), ignore_errors=True)
     return add_single(meta)
+
+
+def _patch_meta(meta, **kv):
+    meta.update(kv)
+    (_sdir(meta["id"]) / "meta.json").write_text(json.dumps(meta))
 
 
 def library_finish(lid):
@@ -1092,9 +1158,7 @@ def list_libraries():
 def get_library(lid):
     lib = _read_lib(lid)
     return {"id": lib["id"], "name": lib["name"], "classes": _classes(lib), "pixel_um": lib.get("pixel_um"),
-            "cases": [{"name": c["name"], "route": c["route"], "edited": _edited(c), "done": bool(c.get("done")),
-                       **({"picked": c["picked"]} if c.get("picked") else {})}
-                      for c in lib["cases"]]}
+            "cases": [_case_view(c) for c in lib["cases"]]}
 
 
 DEFAULT_CLASSES = [
@@ -1259,7 +1323,9 @@ def open_library_case(lid, index):
     root = _lib_root(lib)
     sid = f"{_slug(lid)[:30]}-{index:04d}"
     t = c.get("threshold", 0.5 if lid == "practice" else None)   # the practice maps were made around 0.5
-    import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid, threshold=t)
+    meta = import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid, threshold=t)
+    if c.get("original"):
+        _patch_meta(meta, original=c["original"])
     c["sid"] = sid
     _write_lib(lib)
     return {"id": sid}
@@ -1366,7 +1432,7 @@ def export_library(lid, dest=None, formats=None, job=None):
     lib = _read_lib(lid)
     out = (_dest(dest) if dest or HOSTED else ROOT / "exports") / f"{_slug(lib['name'])}-{time.strftime('%Y%m%d-%H%M%S')}"
     folders = {"mask_png": "masks", "overlay_png": "shaded", "imagej_tif": "imagej", "roiset_zip": "roisets",
-               "qupath_geojson": "qupath", "corrected_mask_tif": "corrected_masks"}
+               "qupath_geojson": "qupath", "corrected_mask_tif": "corrected_masks", "corrected_mask_full_tif": "corrected_masks"}
     want = [f for f in FORMATS if f in set(formats or FORMATS)]
     opts = [f for f in (formats or ()) if f == "holes_split"]
     if not want:

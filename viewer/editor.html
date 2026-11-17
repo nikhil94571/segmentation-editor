@@ -247,14 +247,41 @@ details.more[open] summary { margin-bottom: 4px; }
   background: var(--panel-2); cursor: pointer; font-size: var(--fs-small); color: var(--ink-soft); }
 .drop b { font-size: var(--fs-body); color: var(--ink); font-weight: 600; }
 .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-tint); }
-.picks { margin-top: 12px; background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 10px; padding: 13px 14px; display: grid; gap: 8px; }
-.picks h4 { font-size: var(--fs-body); font-weight: 600; }
+/* one image's folder: an upload bar that grows into the folder's contents */
+.picks { margin-top: 12px; background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 10px; overflow: hidden;
+  transition: height .32s cubic-bezier(.2,.7,.2,1); }
+.picks-in { padding: 13px 14px; display: grid; gap: 9px; transition: opacity .25s ease; }
+.picks-in.fading { opacity: 0; }
+.up { display: grid; gap: 7px; padding: 4px 0 2px; }
+.up-top { display: flex; justify-content: space-between; font-size: var(--fs-small); color: var(--ink-soft); }
+.up-top b { color: var(--ink); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.up-bar { height: 6px; border-radius: 3px; background: var(--line-soft); overflow: hidden; position: relative; }
+.up-bar i { position: absolute; left: 0; top: 0; bottom: 0; width: 0; border-radius: 3px; background: var(--accent); transition: width .2s ease; }
+.up-bar.busy i { width: 35% !important; animation: up-slide 1.1s ease-in-out infinite; }
+@keyframes up-slide { from { left: -35%; } to { left: 100%; } }
+@media (prefers-reduced-motion: reduce) { .picks { transition: none; } .up-bar.busy i { animation: none; width: 100% !important; opacity: .5; } }
+.pk-head { display: flex; align-items: center; gap: 10px; font-size: var(--fs-small); color: var(--ink-soft); }
+.pk-head b { font-size: var(--fs-body); color: var(--ink); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-head .btn { margin-left: auto; padding: 4px 10px; }
 .pk-row { display: grid; grid-template-columns: 104px 1fr; gap: 8px; align-items: center; font-size: var(--fs-small); color: var(--ink-soft); }
 .pk-row select { min-width: 0; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; }
+.pk-row .fixed { color: var(--ink); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pk-notes-h { text-align: center; font-size: var(--fs-label); font-weight: 600; letter-spacing: .07em; text-transform: uppercase; color: var(--ink-mute); margin-top: 4px; }
 .pk-notes { margin: 0; padding-left: 18px; font-size: var(--fs-small); color: var(--ink-soft); line-height: 1.45; }
 .picks .actions { margin-top: 2px; }
-.pv-picked { color: var(--ink-soft); line-height: 1.4; }
-.pv-picked:empty { display: none; }
+details.more summary { text-align: center; }
+/* a library's images and the files each is made from, laid over the Open dialog */
+.modal { position: relative; }
+.review { position: absolute; inset: 0; z-index: 2; display: flex; flex-direction: column; background: var(--modal-bg, var(--panel));
+  border-radius: inherit; animation: rev-in .22s ease; }
+.review[hidden] { display: none; }
+.modal:has(> .review:not([hidden])) { min-height: min(620px, calc(100vh - 40px)); }
+@keyframes rev-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.review-b { padding: 12px 18px; overflow-y: auto; flex: 1; display: grid; gap: 10px; align-content: start; }
+.review-f { display: flex; align-items: center; justify-content: flex-end; gap: 12px; padding: 12px 18px; border-top: 1px solid var(--line-soft); }
+.review-f .err { margin: 0 auto 0 0; }
+.rev-item { background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 10px; padding: 11px 13px; display: grid; gap: 7px; }
+.rev-item.busy { opacity: .55; pointer-events: none; }
 .d-del { margin-top: 12px; width: 100%; justify-content: center; }
 .card .btn { margin-top: 11px; }
 .list { display: grid; gap: 6px; }
@@ -663,16 +690,17 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
         <span>A folder holding one folder per image (or files named in pairs, like slide1_image.png and slide1_prob.tif). Drop it or a .zip of it here, or click to choose · <button class="link" id="libZip" type="button">choose a .zip</button></span>
         <input type="file" id="f_lib_dir" webkitdirectory multiple hidden><input type="file" id="f_lib_zip" accept=".zip" hidden>
       </div>
+      <div class="picks" id="libProg" hidden><div class="picks-in" id="libProgIn"></div></div>
       <div class="err" id="libErr"></div>
     </div>
     <div data-pane="import" hidden>
       <p class="note hosted-only" style="margin:0 0 12px">This is a shared demo server. Anything you upload is stored on it for up to two weeks, so please do not upload confidential or patient images.</p>
       <div class="drop" id="oneDrop" tabindex="0" role="button" style="margin-top:0">
-        <b>Upload one image</b>
-        <span>Drop the model's output folder, a .zip of it, or the files themselves here, or click to choose a folder · <button class="link" id="oneFiles" type="button">choose files</button>. An ImageJ .tif on its own works too.</span>
-        <input type="file" id="f_one_dir" webkitdirectory multiple hidden><input type="file" id="f_one_files" multiple hidden>
+        <b>Upload a folder for one image</b>
+        <span>Drop the model's output folder, a .zip of it, or click to choose a folder</span>
+        <input type="file" id="f_one_dir" webkitdirectory multiple hidden>
       </div>
-      <div class="picks" id="onePick" hidden></div>
+      <div class="picks" id="onePick" hidden><div class="picks-in" id="onePickIn"></div></div>
       <details class="more">
         <summary>Choose the files by hand</summary>
       <div class="card">
@@ -703,8 +731,13 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
       <div class="err" id="importErr"></div>
     </div>
   </div>
+  <div class="review" id="libReview" hidden>
+    <div class="modal-h"><h3 id="revTitle">Check the files</h3><button class="btn primary" data-accept>Accept</button></div>
+    <div class="review-b" id="revList"></div>
+    <div class="review-f"><span class="err" id="revErr"></span><button class="btn primary" data-accept>Accept</button></div>
+  </div>
 </div>
-  <div class="preview" id="preview" hidden><img id="previewImg" alt=""><div class="cap"><span class="q-name" id="previewName"></span><span class="pv-picked" id="previewPicked"></span><span>Click again or press Enter to open</span></div></div>
+  <div class="preview" id="preview" hidden><img id="previewImg" alt=""><div class="cap"><span class="q-name" id="previewName"></span><span>Click again or press Enter to open</span></div></div>
 </div>
 
 <div class="backdrop" id="exportModal"><div class="modal" style="width:520px">

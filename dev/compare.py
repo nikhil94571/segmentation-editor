@@ -80,7 +80,7 @@ def build(folder, name):
     dist_to_delivered = ndi.distance_transform_edt(~edge(delivered))
     case = {
         "name": name, "picked": b["picked"], "notes": b["notes"] + meta.get("notes", []),
-        "width": shape[1], "height": shape[0], "fit_tol": meta["fit_tol"], "coarse": meta.get("coarse"),
+        "width": shape[1], "height": shape[0], "fit_tol": meta["fit_tol"], "fit": meta.get("fit"), "coarse": meta.get("coarse"),
         "threshold": meta["threshold"],
         "before": {"regions": [r["rings"] for r in old], "fit_tol": eb.FIT_TOL},
         "after": {"regions": [r["rings"] for r in meta["regions"]]},

@@ -80,18 +80,19 @@
     if (last - first === 1) {
       const k = dist(d[first], d[last]) / 3;
       out.push([d[first], add(d[first], mul(t1, k)), add(d[last], mul(t2, k)), d[last]]);
+      if (out.r) out.r.push([first, last]);
       return;
     }
     let u = chordParams(d, first, last);
     let b = generateBezier(d, first, last, u, t1, t2);
     let [e, split] = maxError(d, first, last, b, u);
-    if (e < err) { out.push(b); return; }
+    if (e < err) { out.push(b); if (out.r) out.r.push([first, last]); return; }
     if (e < err * 16) {
       for (let i = 0; i < 4; i++) {
         u = reparam(d, first, last, u, b);
         b = generateBezier(d, first, last, u, t1, t2);
         [e, split] = maxError(d, first, last, b, u);
-        if (e < err) { out.push(b); return; }
+        if (e < err) { out.push(b); if (out.r) out.r.push([first, last]); return; }
       }
     }
     let tc = norm(sub(d[split - 1], d[split + 1]));
@@ -188,6 +189,56 @@
     return G.pathFromCubics(cubics, true);
   };
   G.fitOpen = (pts, tol) => G.pathFromCubics(G.fitCurve(pts, tol * tol), false);
+
+  /* Smooth outline (no true corners, e.g. rebuilt from a model's tiles) -> closed curve with as few nodes as the
+     tolerance allows. A first fit splits wherever the curve strays (so it puts nodes where the outline wiggles);
+     then nodes are taken away one at a time, always the one whose removal strays least, while the curve that
+     replaces its two neighbouring pieces stays within tol everywhere. Tangents at the remaining nodes are kept,
+     so the curve stays smooth through them. */
+  G.fitSmoothClosed = (ring, tol, minNodes = 2) => {
+    const step = 2.5, pts = G.resample(dedupe(ring), step, true), n = pts.length, err = tol * tol;
+    if (n < 8) return G.fitClosed(ring, tol);
+    const span = (a, z) => { const s = []; for (let i = a; ; i++) { s.push(pts[i % n]); if (i % n === z % n && s.length > 1) break; } return s; };
+    // a true corner (the outline turns sharply, e.g. where it meets the image edge or pinches to a point) is
+    // kept as one node with a sharp turn, never removed; everywhere else the curve stays smooth
+    const cs = corners(pts, step);
+    let segs = [];
+    if (!cs.length) {
+      const loop = pts.concat([pts[0]]), t = norm(sub(pts[1], pts[n - 1]));
+      const out = []; out.r = [];
+      fitCubic(loop, 0, n, t, neg(t), err, out);
+      segs = out.map((b, i) => ({ b, a: out.r[i][0], z: out.r[i][1], corner: false }));   // a, z: point indices (z may be n)
+    } else {
+      for (let k = 0; k < cs.length; k++) {
+        const a = cs[k], z = cs.length === 1 ? a + n : cs[(k + 1) % cs.length] + (cs[(k + 1) % cs.length] <= a ? n : 0);
+        const d = span(a, z), m = d.length;
+        const out = []; out.r = [];
+        fitCubic(d, 0, m - 1, norm(sub(d[Math.min(2, m - 1)], d[0])), norm(sub(d[Math.max(m - 3, 0)], d[m - 1])), err, out);
+        out.forEach((b, i) => segs.push({ b, a: a + out.r[i][0], z: a + out.r[i][1], corner: i === 0 }));
+      }
+    }
+    const tryMerge = (s1, s2) => {                                // one cubic for two neighbouring pieces
+      const d = span(s1.a, s2.z), m = d.length;
+      if (m < 3) return null;
+      const t1 = norm(sub(s1.b[1], s1.b[0])), t2 = norm(sub(s2.b[2], s2.b[3]));
+      let u = chordParams(d, 0, m - 1), b = generateBezier(d, 0, m - 1, u, t1, t2), [e] = maxError(d, 0, m - 1, b, u);
+      for (let i = 0; i < 6 && e >= err; i++) { u = reparam(d, 0, m - 1, u, b); b = generateBezier(d, 0, m - 1, u, t1, t2); [e] = maxError(d, 0, m - 1, b, u); }
+      return e < err ? { b, a: s1.a, z: s2.z, e, corner: s1.corner } : null;
+    };
+    while (segs.length > minNodes) {
+      let best = null;
+      for (let i = 0; i < segs.length; i++) {
+        const j = (i + 1) % segs.length;
+        if (segs[j].corner) continue;                              // the node between them is a corner: keep it
+        const m = tryMerge(segs[i], segs[j]);
+        if (m && (!best || m.e < best.m.e)) best = { i, j, m };
+      }
+      if (!best) break;
+      if (best.j === 0) { segs.splice(best.i, 1); segs[0] = best.m; segs.push(segs.shift()); }   // across the seam
+      else segs.splice(best.i, 2, best.m);
+    }
+    return G.pathFromCubics(segs.map((s) => s.b), true);
+  };
 
   /* Points along a path. Each has {x, y, seg, t}. step in px. */
   G.flatten = (path, step) => {

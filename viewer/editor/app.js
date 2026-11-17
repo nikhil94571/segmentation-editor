@@ -41,7 +41,8 @@
   /* ---------------- session ---------------- */
   const pts = (ring) => ring.map(([x, y]) => ({ x, y }));
   const fitTol = () => (S.meta && S.meta.fit_tol) || FIT_TOL;   // tiled model output: a quarter of a tile
-  const fitRings = (rings) => rings.map((r) => G.fitClosed(pts(r), fitTol())).filter((p) => p.nodes.length >= 1 && p.segs.length >= 1);
+  const fitRings = (rings) => rings.map((r) => (S.meta && S.meta.fit === "smooth" ? G.fitSmoothClosed : G.fitClosed)(pts(r), fitTol()))
+    .filter((p) => p.nodes.length >= 1 && p.segs.length >= 1);   // smooth: as few nodes as the tolerance allows
 
   async function openSession(sid) {
     const { meta, state } = await api("/api/editor/session?id=" + encodeURIComponent(sid));
@@ -63,7 +64,6 @@
     if (!meta.has_prob) { S.showHeat = false; $("showHeat").checked = false; }
     $("saved").textContent = state ? "Saved" : "";
     fitView(); refresh();
-    if (meta.coarse && !state) toast(`The model answered in ${meta.coarse.grid[0]} × ${meta.coarse.grid[1]} tiles; the outlines were smoothed to follow its probabilities.`);
   }
   /* The regions exactly as the model gave them. */
   const modelRegions = () => S.meta.regions.map((r) => ({
@@ -866,7 +866,7 @@
     } catch (e) { toast(e.message); }
   }
   /* Export: choose what (this image or a whole library) and where, then confirm. */
-  const FORMATS = [["corrected_mask_tif", "Corrected mask (TIF)"], ["imagej_tif", "ImageJ image with regions (TIF)"],
+  const FORMATS = [["corrected_mask_tif", "Corrected mask (TIF)"], ["corrected_mask_full_tif", "Corrected mask, original size (TIF)"], ["imagej_tif", "ImageJ image with regions (TIF)"],
     ["mask_png", "Mask (PNG)"], ["overlay_png", "Shaded image (PNG)"],
     ["roiset_zip", "ImageJ ROI set (ZIP)"], ["qupath_geojson", "QuPath annotations (GeoJSON)"]];
   const FMT_KEY = "seg-editor-export-formats";                    // each person's last choice, in their browser
@@ -892,7 +892,7 @@
       ${st.hosted ? '<p class="note" style="margin-top:14px">The files are packed into one .zip, which downloads to your computer.</p>' : ""}
       <div class="dest" ${st.hosted ? "hidden" : ""}><span>Save in</span><input type="text" class="path" id="exDest" value="${esc(tilde(dest, st.home))}" title="The folder to save in. Choose it, or type a path." spellcheck="false"><button class="btn" id="exChoose">Choose…</button></div>
       <div class="fmt-h">Files to write</div>
-      <div class="fmts">${FORMATS.map(([k, label]) => `<label class="check"><input type="checkbox" name="exFmt" value="${k}" ${fmts.includes(k) ? "checked" : ""}> ${label}</label>`).join("")}</div>
+      <div class="fmts">${FORMATS.filter(([k]) => k !== "corrected_mask_full_tif" || (S.meta && S.meta.original)).map(([k, label]) => `<label class="check" ${k === "corrected_mask_full_tif" ? `title="At the size of ${esc(S.meta.original.file)}"` : ""}><input type="checkbox" name="exFmt" value="${k}" ${fmts.includes(k) ? "checked" : ""}> ${k === "corrected_mask_full_tif" ? `Corrected mask, ${S.meta.original.width} × ${S.meta.original.height} (TIF)` : label}</label>`).join("")}</div>
       <div class="err" id="exErr"></div>
       <div class="actions"><button class="btn" id="exCancel">Cancel</button><button class="btn primary" id="exGo">Export</button></div>`;
     $("exportModal").classList.add("show");
@@ -984,7 +984,6 @@
     const pv = $("preview"), m = document.querySelector("#openModal .modal").getBoundingClientRect();
     $("previewImg").src = `/api/editor/library/preview?id=${encodeURIComponent(S.lib.id)}&index=${i}&t=${Date.now()}`;
     $("previewName").textContent = S.lib.cases[i].name;
-    $("previewPicked").textContent = (S.lib.cases[i].picked || []).join(" · ");
     pv.hidden = false;
     pv.style.left = Math.min(m.right + 16, window.innerWidth - 312) + "px";      // beside the dialog, with a gap
     pv.style.top = Math.max(12, Math.min(m.top + 96, window.innerHeight - 370)) + "px";
@@ -1037,24 +1036,109 @@
     store.set("seg-editor-lib", ""); renderNav(); refresh();
   }
   /* files: [{path, file}] from a folder, or zip: a File. */
+  /* Uploads: a bar for the bytes sent (all files together), then a moving bar while the server reads them.
+     The same box then grows smoothly into what was found. */
+  function xhrPut(url, file, onProgress) {
+    return new Promise((ok, bad) => {
+      const x = new XMLHttpRequest();
+      x.open("POST", url);
+      x.upload.onprogress = (e) => onProgress(e.loaded);
+      x.onload = () => (x.status < 300 ? ok() : bad(new Error((() => { try { return JSON.parse(x.responseText).error; } catch (e) { return ""; } })() || "Upload failed: " + file.name)));
+      x.onerror = () => bad(new Error("Upload failed: " + file.name));
+      x.send(file);
+    });
+  }
+  async function putAll(urlFor, list, bar) {
+    const total = list.reduce((a, x) => a + x.file.size, 0) || 1;
+    let done = 0;
+    for (const x of list) { await xhrPut(urlFor(x.path), x.file, (l) => bar.set((done + l) / total)); done += x.file.size; bar.set(done / total); }
+  }
+  function grower(boxId, innerId) {                            // a box whose height follows its contents, animated
+    const box = $(boxId), inner = $(innerId);
+    const fit = (from) => {
+      const to = inner.getBoundingClientRect().height + 2;
+      box.style.height = from + "px"; void box.offsetHeight; box.style.height = to + "px";
+      const end = () => { box.style.height = ""; box.removeEventListener("transitionend", end); };
+      box.addEventListener("transitionend", end); setTimeout(end, 500);
+    };
+    return {
+      show(html, wire) {
+        const fresh = box.hidden, from = fresh ? 0 : box.getBoundingClientRect().height;
+        const swap = () => { inner.innerHTML = html; if (wire) wire(); box.hidden = false; fit(from); requestAnimationFrame(() => inner.classList.remove("fading")); };
+        if (fresh) { inner.classList.add("fading"); swap(); } else { inner.classList.add("fading"); setTimeout(swap, 170); }
+      },
+      hide() {
+        if (box.hidden) return;
+        box.style.height = box.getBoundingClientRect().height + "px"; void box.offsetHeight; box.style.height = "0px";
+        inner.classList.add("fading");
+        setTimeout(() => { box.hidden = true; box.style.height = ""; inner.innerHTML = ""; }, 330);
+      },
+    };
+  }
+  const barHtml = (key, name) => `<div class="up"><div class="up-top"><b>${esc(name)}</b><span id="${key}Pct">Uploading 0%</span></div><div class="up-bar" id="${key}Bar"><i></i></div></div>`;
+  const barOf = (key) => ({
+    set(f) { const p = Math.round(100 * Math.min(1, f)); const i = $(key + "Bar"); if (i) { i.firstChild.style.width = p + "%"; $(key + "Pct").textContent = `Uploading ${p}%`; } },
+    busy(text) { const i = $(key + "Bar"); if (i) { i.classList.add("busy"); $(key + "Pct").textContent = text; } },
+  });
+  const choiceRows = (opts, chosen, ids) => {
+    const base = (f) => f.split("/").pop();                        // the file's own name; the folder is shown above
+    const row = (label, id, items, cur) => `<label class="pk-row"><span>${label}</span>${items.length > 1
+      ? `<select id="${id}">${items.map((f) => `<option value="${esc(f)}" ${f === cur ? "selected" : ""}>${esc(base(f))}</option>`).join("")}</select>`
+      : `<span class="fixed">${esc(cur ? base(cur) : "–")}</span>`}</label>`;
+    return row("Outlines from", ids[0], opts.outlines.map((o) => o.file), chosen.outlines) + row("Image", ids[1], opts.image, chosen.image);
+  };
+  const notesHtml = (notes) => (notes && notes.length ? `<div class="pk-notes-h">Notes:</div><ul class="pk-notes">${notes.map((t) => `<li>${esc(t)}</li>`).join("")}</ul>` : "");
+  const dropFiles = (files) => (files || []).filter((x) => !x.path.split("/").some((part) => part.startsWith(".")));
+
+  /* A library: upload, then a panel over the dialog lists every image with the files it is made from, any of
+     which can be changed, and Accept. */
+  const libBox = grower("libProg", "libProgIn");
   async function importLibrary(files, zip, name) {
-    const err = $("libErr");
-    files = (files || []).filter((x) => !x.path.split("/").some((part) => part.startsWith(".")));
+    const err = $("libErr"); err.textContent = "";
+    files = dropFiles(files);
     if (!files.length && !zip) { err.textContent = "Nothing to import in that."; return; }
+    libBox.show(barHtml("lib", name || "Library"));
+    const bar = barOf("lib");
     try {
       const { id } = await api("/api/editor/library/begin", { name: name || "Library" });
-      const put = async (path, file) => {
-        const r = await fetch(`/api/editor/library/put?id=${encodeURIComponent(id)}&path=${encodeURIComponent(path)}`, { method: "POST", body: file });
-        if (!r.ok) throw new Error("Upload failed: " + path);
-      };
-      if (zip) { err.textContent = "Uploading…"; await put("__library__.zip", zip); }
-      else { let n = 0; for (const x of files) { err.textContent = `Uploading ${++n} of ${files.length}…`; await put(x.path, x.file); } }
-      err.textContent = "Recognising files…";
+      await putAll((p) => `/api/editor/library/put?id=${encodeURIComponent(id)}&path=${encodeURIComponent(p)}`,
+        zip ? [{ path: "__library__.zip", file: zip }] : files, bar);
+      bar.busy("Reading the files…");
       const j = await api("/api/editor/library/finish", { id });
-      await useLibrary(id, 0);
-      err.textContent = j.skipped.length ? `Imported ${j.cases} images. Skipped: ${j.skipped.join(", ")}.` : "";
-      if (j.skipped.length) renderLibraries(); else $("openModal").classList.remove("show");
-    } catch (e) { err.textContent = e.message; }
+      libBox.hide();
+      await showReview(id, j.skipped);
+    } catch (e) { libBox.hide(); err.textContent = e.message; }
+  }
+  async function showReview(id, skipped) {
+    const lib = await api("/api/editor/library?id=" + encodeURIComponent(id));
+    const accept = async () => {
+      $("libReview").hidden = true; $("libErr").textContent = "";
+      try { S.libShut = false; await useLibrary(id, 0); $("openModal").classList.remove("show"); } catch (e) { $("libErr").textContent = e.message; }
+    };
+    if (!lib.cases.some((c) => c.choosable)) return accept();        // files paired by name: nothing to choose
+    $("revTitle").textContent = lib.name;
+    const item = (c, i) => `<div class="pk-head"><span>Folder name:</span><b>${esc(c.name)}</b></div>` +
+      (c.choosable ? choiceRows(c.options, c.chosen, [`rvOut${i}`, `rvImg${i}`]) + notesHtml(c.notes) : `<span class="note" style="margin:0">Files paired by name</span>`);
+    $("revList").innerHTML = lib.cases.map((c, i) => `<div class="rev-item" data-i="${i}">${item(c, i)}</div>`).join("");
+    $("revErr").textContent = skipped && skipped.length ? `Skipped: ${skipped.join(", ")}` : "";
+    const wire = (el, i) => {
+      for (const [sel, key] of [[`#rvOut${i}`, "outlines"], [`#rvImg${i}`, "image"]]) {
+        const s = el.querySelector(sel); if (!s) continue;
+        s.onchange = async () => {
+          el.classList.add("busy");
+          try {
+            const body = { id, index: i, [key]: s.value };
+            if (key === "image") { const o = el.querySelector(`#rvOut${i}`); if (o) body.outlines = o.value; }
+            const c = await api("/api/editor/library/choose", body);
+            el.innerHTML = item(c, i); wire(el, i); $("revErr").textContent = "";
+          } catch (e) { $("revErr").textContent = e.message; }
+          el.classList.remove("busy");
+        };
+      }
+    };
+    $("revList").querySelectorAll(".rev-item").forEach((el) => wire(el, +el.dataset.i));
+    document.querySelectorAll("#libReview [data-accept]").forEach((b) => (b.onclick = accept));
+    $("libReview").hidden = false;
   }
   const stripTop = (list) => {                                 // drop the shared top folder from every path
     const tops = new Set(list.map((x) => x.path.split("/")[0]));
@@ -1066,94 +1150,71 @@
     const reader = entry.createReader();
     for (;;) { const batch = await new Promise((ok, bad) => reader.readEntries(ok, bad)); if (!batch.length) break; for (const e of batch) await readEntry(e, out); }
   }
-  function wireLibraryDrop() {
-    const drop = $("libDrop"), dir = $("f_lib_dir"), zip = $("f_lib_zip");
-    drop.onclick = (e) => { if (e.target.id !== "libZip") dir.click(); };
+  function wireDrop(dropId, dirId, onFolder, onZip, errId) {
+    const drop = $(dropId), dir = $(dirId);
+    drop.onclick = (e) => { if (!e.target.closest("button")) dir.click(); };
     drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); dir.click(); } };
-    $("libZip").onclick = (e) => { e.stopPropagation(); zip.click(); };
-    dir.onchange = () => { const s = stripTop([...dir.files].map((f) => ({ path: f.webkitRelativePath || f.name, file: f }))); dir.value = ""; importLibrary(s.files, null, s.name); };
-    zip.onchange = () => { const f = zip.files[0]; zip.value = ""; if (f) importLibrary(null, f, f.name.replace(/\.zip$/i, "")); };
+    dir.onchange = () => { const l = [...dir.files].map((f) => ({ path: f.webkitRelativePath || f.name, file: f })); dir.value = ""; onFolder(l); };
     drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
     drop.ondragleave = () => drop.classList.remove("over");
     drop.ondrop = async (e) => {
       e.preventDefault(); drop.classList.remove("over");
       const items = [...e.dataTransfer.items].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
       const lone = e.dataTransfer.files.length === 1 ? e.dataTransfer.files[0] : null;
-      if (lone && /\.zip$/i.test(lone.name) && items.length === 1 && items[0].isFile) return importLibrary(null, lone, lone.name.replace(/\.zip$/i, ""));
-      $("libErr").textContent = "Reading folder…";
-      const out = []; try { for (const en of items) await readEntry(en, out); } catch (err) { $("libErr").textContent = "Could not read that folder."; return; }
-      const s = stripTop(out); importLibrary(s.files, null, s.name);
+      if (lone && /\.zip$/i.test(lone.name) && items.length === 1 && items[0].isFile) return onZip(lone);
+      const out = []; try { for (const en of items) await readEntry(en, out); } catch (err) { $(errId).textContent = "Could not read that folder."; return; }
+      onFolder(out);
     };
   }
-  /* Single image: one image's folder (or .zip, or loose files). The server works out which file is the image
-     and which holds the model's output, by what is in them; this shows its choice, which can be changed. */
+  function wireLibraryDrop() {
+    wireDrop("libDrop", "f_lib_dir", (l) => { const s = stripTop(l); importLibrary(s.files, null, s.name); },
+      (z) => importLibrary(null, z, z.name.replace(/\.zip$/i, "")), "libErr");
+    const zip = $("f_lib_zip");
+    $("libZip").onclick = (e) => { e.stopPropagation(); zip.click(); };
+    zip.onchange = () => { const f = zip.files[0]; zip.value = ""; if (f) importLibrary(null, f, f.name.replace(/\.zip$/i, "")); };
+  }
+
+  /* Single image: one image's folder (or a .zip of it). The server works out which file is the image and which
+     holds the model's output, by what is in them; the choice is shown and can be changed. */
   let oneId = null;
+  const oneBox = grower("onePick", "onePickIn");
   async function uploadOne(files, zip) {
-    const err = $("importErr"), pick = $("onePick");
-    files = (files || []).filter((x) => !x.path.split("/").some((part) => part.startsWith(".")));
+    const err = $("importErr"); err.textContent = "";
+    files = dropFiles(files);
     if (!files.length && !zip) { err.textContent = "Nothing to open in that."; return; }
-    pick.hidden = true; err.textContent = "Uploading…";
+    const name = zip ? zip.name.replace(/\.zip$/i, "") : files[0].path.includes("/") ? files[0].path.split("/")[0] : files[0].path;
+    oneBox.show(barHtml("one", name));
+    const bar = barOf("one");
     try {
       oneId = (await api("/api/editor/bundle/begin", {})).id;
-      const put = async (path, file) => {
-        const r = await fetch(`/api/editor/bundle/put?id=${encodeURIComponent(oneId)}&path=${encodeURIComponent(path)}`, { method: "POST", body: file });
-        if (!r.ok) throw new Error("Upload failed: " + path);
-      };
-      if (zip) await put(zip.name, zip);
-      else { let n = 0; for (const x of files) { err.textContent = `Uploading ${++n} of ${files.length}…`; await put(x.path, x.file); } }
-      err.textContent = "Looking at the files…";
+      await putAll((p) => `/api/editor/bundle/put?id=${encodeURIComponent(oneId)}&path=${encodeURIComponent(p)}`, zip ? [{ path: zip.name, file: zip }] : files, bar);
+      bar.busy("Reading the files…");
       showPicks(await api("/api/editor/bundle/scan", { id: oneId }));
-      err.textContent = "";
-    } catch (e) { err.textContent = e.message; }
+    } catch (e) { oneBox.hide(); oneId = null; err.textContent = e.message; }
   }
   function showPicks(b) {
-    const pick = $("onePick"), cur = b.files.model || b.files.rois || (b.route === "imagej" ? b.files.imagej : b.files.overlay);
-    const img = b.files.image || b.files.imagej || b.files.overlay;
-    const outs = b.options.outlines, imgs = b.options.image;
-    pick.innerHTML = `<h4>${esc(b.name)}</h4>
-      ${outs.length > 1 ? `<label class="pk-row"><span>Outlines from</span><select id="pkOut">${outs.map((o) => `<option value="${esc(o.file)}" ${o.file === cur ? "selected" : ""}>${esc(o.file)}: ${esc(o.what)}</option>`).join("")}</select></label>` : ""}
-      ${imgs.length > 1 ? `<label class="pk-row"><span>Image</span><select id="pkImg">${imgs.map((f) => `<option value="${esc(f)}" ${f === img ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></label>` : ""}
-      <ul class="pk-notes">${[...b.picked.filter((t, k) => !(k === 0 && outs.length > 1) && !(k === 1 && imgs.length > 1)), ...b.notes].map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
-      <div class="actions"><button class="btn" id="pkAgain">Choose other files</button><button class="btn primary" id="pkOpen">Open</button></div>`;
-    pick.hidden = false;
-    const choice = () => ({ id: oneId, outlines: $("pkOut") ? $("pkOut").value : null, image: $("pkImg") ? $("pkImg").value : null });
-    const rescan = async () => { try { $("importErr").textContent = ""; showPicks(await api("/api/editor/bundle/scan", choice())); } catch (e) { $("importErr").textContent = e.message; } };
-    if ($("pkOut")) $("pkOut").onchange = () => { if ($("pkImg")) $("pkImg").value = ""; rescan(); };
-    if ($("pkImg")) $("pkImg").onchange = rescan;
-    $("pkAgain").onclick = () => { pick.hidden = true; oneId = null; };
-    $("pkOpen").onclick = async () => {
-      $("importErr").textContent = "Opening…";
-      try {
-        const j = await api("/api/editor/bundle/open", choice());
-        oneId = null; pick.hidden = true;
-        await useLibrary(j.library, j.index);
-        $("openModal").classList.remove("show"); $("importErr").textContent = "";
-      } catch (e) { $("importErr").textContent = e.message; }
-    };
-    $("pkOpen").focus();
+    const choice = () => ({ id: oneId, outlines: $("pkOut") ? $("pkOut").value : b.chosen.outlines, image: $("pkImg") ? $("pkImg").value : b.chosen.image });
+    oneBox.show(`<div class="pk-head"><span>Folder name:</span><b>${esc(b.name)}</b><button class="btn" id="pkRemove">Remove</button></div>
+      ${choiceRows(b.options, b.chosen, ["pkOut", "pkImg"])}
+      ${notesHtml(b.notes)}
+      <div class="actions"><button class="btn primary" id="pkOpen">Open</button></div>`, () => {
+      const rescan = async (body) => { try { $("importErr").textContent = ""; showPicks(await api("/api/editor/bundle/scan", body)); } catch (e) { $("importErr").textContent = e.message; } };
+      if ($("pkOut")) $("pkOut").onchange = () => rescan({ id: oneId, outlines: $("pkOut").value });
+      if ($("pkImg")) $("pkImg").onchange = () => rescan(choice());
+      $("pkRemove").onclick = () => { oneId = null; oneBox.hide(); $("importErr").textContent = ""; };
+      $("pkOpen").onclick = async () => {
+        $("pkOpen").disabled = true; $("pkOpen").textContent = "Opening…";
+        try {
+          const j = await api("/api/editor/bundle/open", choice());
+          oneId = null; oneBox.hide();
+          await useLibrary(j.library, j.index);
+          $("openModal").classList.remove("show"); $("importErr").textContent = "";
+        } catch (e) { $("importErr").textContent = e.message; if ($("pkOpen")) { $("pkOpen").disabled = false; $("pkOpen").textContent = "Open"; } }
+      };
+    });
   }
   function wireOneDrop() {
-    const drop = $("oneDrop"), dir = $("f_one_dir"), many = $("f_one_files");
-    drop.onclick = (e) => { if (e.target.id !== "oneFiles") dir.click(); };
-    drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); dir.click(); } };
-    $("oneFiles").onclick = (e) => { e.stopPropagation(); many.click(); };
-    dir.onchange = () => { const l = [...dir.files].map((f) => ({ path: f.webkitRelativePath || f.name, file: f })); dir.value = ""; uploadOne(l); };
-    many.onchange = () => {
-      const l = [...many.files]; many.value = "";
-      if (l.length === 1 && /\.zip$/i.test(l[0].name)) return uploadOne(null, l[0]);
-      uploadOne(l.map((f) => ({ path: f.name, file: f })));
-    };
-    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
-    drop.ondragleave = () => drop.classList.remove("over");
-    drop.ondrop = async (e) => {
-      e.preventDefault(); drop.classList.remove("over");
-      const items = [...e.dataTransfer.items].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
-      const lone = e.dataTransfer.files.length === 1 ? e.dataTransfer.files[0] : null;
-      if (lone && /\.zip$/i.test(lone.name) && items.length === 1 && items[0].isFile) return uploadOne(null, lone);
-      $("importErr").textContent = "Reading…";
-      const out = []; try { for (const en of items) await readEntry(en, out); } catch (err) { $("importErr").textContent = "Could not read that folder."; return; }
-      uploadOne(out);
-    };
+    wireDrop("oneDrop", "f_one_dir", (l) => uploadOne(l), (z) => uploadOne(null, z), "importErr");
   }
   function setTab(name) {
     document.querySelectorAll("#openTabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
@@ -1323,6 +1384,6 @@
       if (store.get("seg-editor-welcomed") || q.has("selftest")) return;
       store.set("seg-editor-welcomed", "1"); tour();
     });
-  window.__editor = { S, draw, fitView, saveNow, modelRegions, toggleDone, showExport, runExport, pickCase, selHole, openSession, openCase, useLibrary, refresh, slide, setTool, step, undo, region, inside, setClass, openLabel, showClasses, shapeOp, serverShape, measures, renderBar, labelPoint };   // for selftest.js
+  window.__editor = { S, draw, fitView, saveNow, modelRegions, toggleDone, showExport, runExport, pickCase, uploadOne, importLibrary, selHole, openSession, openCase, useLibrary, refresh, slide, setTool, step, undo, region, inside, setClass, openLabel, showClasses, shapeOp, serverShape, measures, renderBar, labelPoint };   // for selftest.js
   if (new URLSearchParams(location.search).has("selftest")) { const sc = document.createElement("script"); sc.src = "/viewer/editor/selftest.js"; document.body.appendChild(sc); }
 })();

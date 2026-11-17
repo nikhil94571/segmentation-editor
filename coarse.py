@@ -67,15 +67,23 @@ def to_logit(p):
     return np.log(p / (1 - p))
 
 
-def smooth_probability(prob_grid, shape, kind="stretch"):
+def smooth_probability(prob_grid, shape, kind="stretch", blur=0.0):
     """Probabilities per tile -> probabilities per pixel. Interpolated as logits (the model's own scale, where
-    a confident tile is not flattened towards 0.5 by its neighbours), then turned back into probabilities."""
-    return (1 / (1 + np.exp(-upsample(to_logit(prob_grid), shape, kind)))).astype(np.float32)
+    a confident tile is not flattened towards 0.5 by its neighbours), then turned back into probabilities.
+    blur (in tiles) first evens out tile-to-tile jitter, so the outline does not wiggle wherever neighbouring
+    tiles sit either side of the cut-off."""
+    lg = to_logit(prob_grid)
+    if blur > 0:
+        lg = ndi.gaussian_filter(lg, blur, mode="nearest")
+    return (1 / (1 + np.exp(-upsample(lg, shape, kind)))).astype(np.float32)
 
 
-def smooth_mask(mask_grid, shape, kind="stretch"):
+def smooth_mask(mask_grid, shape, kind="stretch", blur=0.0):
     """A yes/no tile grid (no probabilities given) -> a smooth 0..1 field whose 0.5 line rounds off the stairs."""
-    return np.clip(upsample(mask_grid.astype(np.float32), shape, kind), 0, 1).astype(np.float32)
+    g = mask_grid.astype(np.float32)
+    if blur > 0:
+        g = ndi.gaussian_filter(g, blur, mode="nearest")
+    return np.clip(upsample(g, shape, kind), 0, 1).astype(np.float32)
 
 
 def _transitions(a, axis):

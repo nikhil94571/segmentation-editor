@@ -45,6 +45,7 @@ button.b { font: inherit; padding: 5px 10px; border-radius: 7px; border: 1px sol
 .cap { position: absolute; left: 10px; top: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
   padding: 6px 10px; font-size: 12px; pointer-events: none; max-width: calc(100% - 20px); }
 .cap b { display: block; font-size: 13px; }
+.cap .tg { display: flex; align-items: center; gap: 6px; margin-top: 6px; pointer-events: auto; cursor: pointer; color: var(--ink); }
 .key { position: absolute; left: 10px; bottom: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
   padding: 5px 10px; font-size: 12px; color: var(--ink-soft); pointer-events: none; }
 .sw { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin: 0 4px 0 8px; border-radius: 2px; }
@@ -65,13 +66,13 @@ button.b { font: inherit; padding: 5px 10px; border-radius: 7px; border: 1px sol
     <span class="st" id="stats"></span>
     <span class="ctl">
       <label title="The expert's outline, when the folder has one"><input type="checkbox" id="showRef" checked> Reference</label>
-      <label title="Left side: the nodes the editor gave this output before smoothing"><input type="checkbox" id="showOld"> Old nodes on the left</label>
       <button class="b" id="fit">Fit</button>
     </span>
     <span id="notes"></span>
   </header>
   <div class="panes">
-    <div class="pane"><canvas id="cvL"></canvas><div class="cap" id="capL"></div><div class="key" id="keyL"></div></div>
+    <div class="pane"><canvas id="cvL"></canvas><div class="cap"><b>As delivered</b><span id="capL"></span>
+      <label class="tg" title="What the editor made of this output before smoothing: one node at nearly every step"><input type="checkbox" id="showOld"> Nodes as the old version made them</label></div><div class="key" id="keyL"></div></div>
     <div class="pane"><canvas id="cvR"></canvas><div class="cap" id="capR"></div><div class="key" id="keyR"></div></div>
   </div>
 </main>
@@ -162,7 +163,7 @@ button.b { font: inherit; padding: 5px 10px; border-radius: 7px; border: 1px sol
     const keep = S.c && S.img && S.img.width === img.width && S.img.height === img.height;
     S.c = c; S.img = img;
     S.oldPaths = c.before.regions.map((rs) => fit(rs, c.before.fit_tol));
-    S.newPaths = c.after.regions.map((rs) => fit(rs, c.fit_tol));
+    S.newPaths = c.after.regions.map((rs) => (c.fit === "smooth" ? rs.map((r) => G.fitSmoothClosed(r.map(([x, y]) => ({ x, y })), c.fit_tol)).filter((p) => p.nodes.length && p.segs.length) : fit(rs, c.fit_tol)));
     const before = count(S.oldPaths), after = count(S.newPaths), st = c.stats;
     $("title").textContent = c.name;
     $("stats").innerHTML = `Nodes <b>${before} → ${after}</b>` +
@@ -170,7 +171,7 @@ button.b { font: inherit; padding: 5px 10px; border-radius: 7px; border: 1px sol
       (st.iou_reference_after != null ? ` · overlap with reference <b>${st.iou_reference_before.toFixed(3)} → ${st.iou_reference_after.toFixed(3)}</b>` : "");
     $("notes").textContent = [...c.picked, ...c.notes].join(" · ");
     const g = c.coarse;
-    $("capL").innerHTML = `<b>As delivered</b>${g ? `${g.grid[0]} × ${g.grid[1]} tiles, cut-off ${(+c.threshold).toFixed(3)}` : ""}`;
+    $("capL").textContent = g ? `${g.grid[0]} × ${g.grid[1]} tiles, cut-off ${(+c.threshold).toFixed(3)}` : "";
     $("capR").innerHTML = `<b>In the editor</b>${S.newPaths.length} regions, ${after} nodes`;
     const ref = c.reference ? `<span class="sw" style="background:${REF}"></span>Reference` : "";
     $("keyL").innerHTML = ($("showOld").checked ? `<span class="dot"></span>Nodes before smoothing (${before})` : "Outline traced around the tiles") + " " + ref;

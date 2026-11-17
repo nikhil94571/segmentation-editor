@@ -232,6 +232,9 @@ class Handler(SimpleHTTPRequestHandler):
             t = body.get("threshold")
             return self._editor(lambda: eb.add_single(eb.import_session(
                 body.get("route"), files, body.get("name"), float(t) if t not in (None, "") else None)))
+        if url.path == "/api/editor/library/choose":
+            return self._editor(eb.library_choose, body.get("id", ""), int(body.get("index", 0)),
+                                body.get("outlines"), body.get("image"))
         if url.path == "/api/editor/bundle/begin":
             return self._editor(eb.bundle_begin)
         if url.path == "/api/editor/bundle/scan":

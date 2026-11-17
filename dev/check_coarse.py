@@ -126,7 +126,10 @@ check("only the two TIFs: the traced ImageJ outlines, not the hand-drawn origina
       and sb["files"]["imagej"].endswith("_imagej.tif") and sb["reference"] == f"{f0.name}.tif")
 only_orig = variant(f0, lambda n: n == f"{f0.name}.tif")
 sb = eb.scan_bundle(only_orig, files_of(only_orig))
-check("only the original: it is used, and named as drawn by hand", "drawn by hand" in " ".join(sb["picked"]))
+check("only the original: it is used, and named as drawn by hand", "drawn by hand" in " ".join(o["what"] for o in sb["options"]["outlines"]))
+sb = eb.scan_bundle(f0, files_of(f0))
+check("notes are short: the cut-off, and the outlines left out", sb["notes"] == ["Cut-off: 0.675", f"{f0.name}.tif contains outlines that were discarded"], str(sb["notes"]))
+check("the larger original is found (for a full-size export)", sb["original"] == {"file": f"{f0.name}.tif", "width": 7040, "height": 5842}, str(sb["original"]))
 pngs = variant(f0, lambda n: n.endswith(".png"))
 try:
     sb = eb.scan_bundle(pngs, files_of(pngs))
@@ -140,7 +143,7 @@ sb = eb.scan_bundle(f0, files_of(f0))
 meta = eb.import_session(sb["route"], {k: f0 / v for k, v in sb["files"].items()}, name=f0.name)
 check("import: tiled output recognised and smoothed", meta.get("coarse", {}).get("grid") == [128, 154], str(meta.get("coarse")))
 check("import: the cut-off from the model's file", abs(meta["threshold"] - 0.675) < 1e-6)
-check("import: curves fitted to a quarter tile", meta["fit_tol"] == 4.0)
+check("import: curves fitted to a third of a tile, with the node-removing fitter", meta["fit_tol"] == 5.33 and meta.get("fit") == "smooth")
 check("import: source image name kept for the export", meta.get("source_name") == f"{f0.name}.tif")
 regions = [{"name": r["name"], "rings": r["rings"]} for r in meta["regions"]]
 r = eb.export(meta["id"], regions, formats=["corrected_mask_tif"])
@@ -150,6 +153,15 @@ m = tifffile.imread(mask_files[0]) if mask_files else None
 check("export: <image>_corrected_mask.tif", [q.name for q in mask_files] == [f"{f0.name}_corrected_mask.tif"])
 check("export: image size, one 8-bit channel, 0 and 255", m is not None and m.shape == (2048, 2467) and m.dtype == np.uint8
       and set(np.unique(m)) <= {0, 255})
+eb._patch_meta(meta, original=sb["original"])
+eb.export(meta["id"], regions, formats=["corrected_mask_tif", "corrected_mask_full_tif"])
+names_out = sorted(q.name for q in out.glob("*.tif"))
+big = tifffile.imread(out / f"{f0.name}_corrected_mask.tif")
+check("full-size export: <image>_corrected_mask.tif at the original's size, the small one named by its size",
+      names_out == sorted([f"{f0.name}_corrected_mask.tif", f"{f0.name}_corrected_mask_2467x2048.tif"]) and big.shape == (5842, 7040), str(names_out))
+small = tifffile.imread(out / f"{f0.name}_corrected_mask_2467x2048.tif") > 0
+shrunk = np.asarray(Image.fromarray(big).resize((2467, 2048), Image.BILINEAR)) > 127
+check("full-size export: the same regions as the small one", (shrunk == small).mean() > 0.998, f"{(shrunk == small).mean():.5f} of pixels agree")
 for route_name, files in (("the mask TIF", {"image": f0 / f"{f0.name}_predicted_lesion_imagej.tif", "model": f0 / f"{f0.name}_predicted_lesion_imagej_mask.tif"}),
                           ("the ImageJ TIF", {"imagej": f0 / f"{f0.name}_predicted_lesion_imagej.tif"})):
     mm = eb.import_session("model" if "model" in files else "imagej", files, name="x")
@@ -168,7 +180,35 @@ cs, skipped = eb._build_cases(lib_root, [q for q in lib_root.rglob("*") if q.is_
 names = sorted(c["name"] for c in cs)
 check("library: one image per folder, plus the name-paired files", names == sorted([f.name for f in folders[:3]] + ["pash-low", "fibrocystic-mid"]),
       f"{names}, skipped {skipped}")
-check("library: what was picked is recorded per image", all(c.get("picked") for c in cs if c["route"] == "grid"))
+check("library: what was picked is recorded per image", all(c.get("picked") and c.get("chosen") and c.get("options") for c in cs if c["route"] == "grid"))
+lid = "choosecheck"
+eb._write_lib({"id": lid, "name": "check", "created": "", "root": str(lib_root), "own_files": False, "cases": cs})
+eb._lib_root = (lambda orig: (lambda lib: lib_root if lib["id"] == lid else orig(lib)))(eb._lib_root)
+k = next(i for i, c in enumerate(cs) if c["route"] == "grid")
+sid = eb.open_library_case(lid, k)["id"]
+mask_file = next(o["file"] for o in cs[k]["options"]["outlines"] if o["file"].endswith("_mask.tif"))
+v = eb.library_choose(lid, k, outlines=mask_file)
+after = eb._read_lib(lid)["cases"][k]
+check("library: another file can be chosen for one image; its old import is dropped",
+      v["chosen"]["outlines"] == mask_file and after["route"] == "model" and after["sid"] is None and not (eb._sdir(sid) / "meta.json").exists())
+check("library: the full-size original is kept per image", bool(after.get("original")))
+
+# ---- the fitter: as few nodes as the tolerance allows, no node pairs ----
+import subprocess  # noqa: E402
+js = f"""
+const G = require({json.dumps(str(ROOT / 'viewer/editor/geom.js'))});
+const ring = []; for (let i = 0; i < 400; i++) {{ const t = i / 400 * 2 * Math.PI; ring.push({{ x: 300 + 220 * Math.cos(t) + Math.sin(7 * t), y: 200 + 120 * Math.sin(t) + Math.cos(5 * t) }}); }}
+const stad = []; for (let i = 0; i <= 100; i++) stad.push({{ x: 100 + 4 * i + Math.sin(i), y: 100 }});
+for (let i = 0; i <= 60; i++) {{ const t = Math.PI / 2 - i / 60 * Math.PI; stad.push({{ x: 500 + 60 * Math.cos(t), y: 160 - 60 * Math.sin(t) }}); }}
+for (let i = 0; i <= 100; i++) stad.push({{ x: 500 - 4 * i, y: 220 + Math.cos(i) }});
+for (let i = 0; i <= 60; i++) {{ const t = -Math.PI / 2 - i / 60 * Math.PI; stad.push({{ x: 100 + 60 * Math.cos(t), y: 160 - 60 * Math.sin(t) }}); }}
+const far = (p, ring) => {{ const fl = G.flatten(p, 0.5); return Math.max(...ring.map((q) => Math.min(...fl.map((f) => Math.hypot(f.x - q.x, f.y - q.y))))); }};
+const a = G.fitSmoothClosed(ring, 5.33), b = G.fitSmoothClosed(stad, 5.33), c = G.fitClosed(ring, 4);
+console.log(JSON.stringify({{ ellipse: a.nodes.length, ellipse_far: far(a, ring), stadium: b.nodes.length, stadium_far: far(b, stad), old_ellipse: c.nodes.length }}));
+"""
+fit = json.loads(subprocess.check_output(["node", "-e", js]))
+check("fitter: a wobbly ellipse in 4 nodes or fewer, within tolerance", fit["ellipse"] <= 4 and fit["ellipse_far"] <= 5.4, str(fit))
+check("fitter: two straight sides and two round ends in 6 nodes or fewer, within tolerance", fit["stadium"] <= 6 and fit["stadium_far"] <= 5.4, str(fit))
 
 # ---- the practice images are unchanged ----
 lib = eb._read_lib("practice")

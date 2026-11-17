@@ -24,11 +24,17 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await ev(`document.getElementById("open").click()`); await sleep(800);
   await ev(`document.querySelector('#openTabs [data-tab="import"]').click()`); await sleep(300);
   const doc = await send("DOM.getDocument", {});
-  const node = await send("DOM.querySelector", { nodeId: doc.root.nodeId, selector: "#f_one_files" });
+  // a test cannot fill a folder chooser, so the files go into a plain file input and on to the same upload code,
+  // under the folder's name as a dropped folder would give them
+  await ev(`(() => { const i = document.createElement("input"); i.type = "file"; i.multiple = true; i.id = "testFiles"; i.hidden = true; document.body.appendChild(i); })()`);
+  const node = await send("DOM.querySelector", { nodeId: doc.root.nodeId, selector: "#testFiles" });
   const files = fs.readdirSync(folder).filter((f) => !f.startsWith(".")).map((f) => path.resolve(folder, f));
   await send("DOM.setFileInputFiles", { files, nodeId: node.nodeId });
+  await ev(`(() => { const name = ${JSON.stringify(path.basename(folder))}; window.__editor.uploadOne([...document.getElementById("testFiles").files].map((f) => ({ path: name + "/" + f.name, file: f }))); })()`);
+  await sleep(250); await shot(out + "-uploading.png");
   let shown = false;
-  for (let i = 0; i < 240 && !shown; i++) { await sleep(500); shown = await ev(`!document.getElementById("onePick").hidden`); }
+  for (let i = 0; i < 240 && !shown; i++) { await sleep(500); shown = await ev(`!!document.getElementById("pkOpen")`); }
+  await sleep(600);
   const picked = await ev(`document.getElementById("onePick").innerText`);
   console.log("PICKED:\n" + picked);
   await shot(out + "-picked.png");
