@@ -47,11 +47,11 @@
 
   async function openSession(sid) {
     const { meta, state } = await api("/api/editor/session?id=" + encodeURIComponent(sid));
-    const [img, score] = await Promise.all([
-      loadImage("/api/editor/tissue.jpg?id=" + encodeURIComponent(sid)),
-      meta.has_prob ? loadImage("/api/editor/score.png?id=" + encodeURIComponent(sid)) : Promise.resolve(null),
-    ]);
-    Object.assign(S, { sid, meta, img, heat: score ? heatLayer(score) : null, selected: null, draft: null, stroke: null, drag: null, undo: [], redo: [] });
+    const img = await loadImage("/api/editor/tissue.jpg?id=" + encodeURIComponent(sid));
+    Object.assign(S, { sid, meta, img, heat: null, selected: null, draft: null, stroke: null, drag: null, undo: [], redo: [] });
+    if (meta.has_prob) {                                        // the heatmap starts hidden: it loads after the image is shown
+      loadImage("/api/editor/score.png?id=" + encodeURIComponent(sid)).then((score) => { if (S.sid === sid) { S.heat = heatLayer(score); if (S.showHeat) draw(); } }).catch(() => {});
+    }
     if (state && state.regions) { S.regions = state.regions; S.counter = state.counter || 0; }
     else {
       S.counter = 0;

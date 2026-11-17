@@ -1352,9 +1352,10 @@ def open_library_case(lid, index):
     root = _lib_root(lib)
     sid = f"{_slug(lid)[:30]}-{index:04d}"
     t = c.get("threshold", 0.5 if lid == "practice" else None)   # the practice maps were made around 0.5
-    meta = import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid, threshold=t)
-    if c.get("original"):
-        _patch_meta(meta, original=c["original"])
+    if not _from_template(lid, index, sid):
+        meta = import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid, threshold=t)
+        if c.get("original"):
+            _patch_meta(meta, original=c["original"])
     c["sid"] = sid
     _write_lib(lib)
     return {"id": sid}
@@ -1509,6 +1510,50 @@ def export_library(lid, dest=None, formats=None, job=None):
 
 # ---------- hosted housekeeping ----------
 
+TEMPLATE = "_practice"                     # hosted: the practice sessions, built once per server and shared
+
+
+def warm_practice():
+    """Hosted: build the practice images' sessions once, when the server starts, so a new visitor's first image
+    (and the tour) opens at once instead of being built for them (a few seconds on a small server)."""
+    set_workspace(TEMPLATE)
+    try:
+        lib = _read_lib("practice")
+        for i in range(len(lib["cases"])):
+            sid = open_library_case("practice", i)["id"]
+            d = _sdir(sid)
+            tissue_view(sid)
+            if json.loads((d / "meta.json").read_text()).get("has_prob"):
+                score_png(sid)
+            (d / ".ready").write_text("1")
+    finally:
+        set_workspace("")
+
+
+def _from_template(lid, index, sid):
+    """Hosted: a visitor's practice session from the shared one, if it is built. Large files that never change are
+    linked, not copied (instant, no extra disk); files a session rewrites are copied."""
+    if not HOSTED or lid != "practice" or _workspace.get() in ("", TEMPLATE):
+        return False
+    t = DATA / "workspaces" / TEMPLATE / "sessions" / f"practice-{index:04d}"
+    if not (t / ".ready").exists():
+        return False
+    d = _sdir(sid)
+    shutil.rmtree(d, ignore_errors=True)
+    d.mkdir(parents=True)
+    for f in t.iterdir():
+        if f.name in ("tissue.png", "score.npy", "labels.npy", "view.jpg", "score.png"):
+            try:
+                os.link(f, d / f.name)
+            except OSError:
+                shutil.copy(f, d / f.name)
+        elif f.name == "meta.json":
+            meta = json.loads(f.read_text())
+            meta["id"] = sid
+            (d / "meta.json").write_text(json.dumps(meta))
+    return True
+
+
 def sweep_workspaces(days=14):
     """Hosted: delete workspaces nobody has touched for a while."""
     root = DATA / "workspaces"
@@ -1516,6 +1561,8 @@ def sweep_workspaces(days=14):
         return 0
     old, n = time.time() - days * 86400, 0
     for d in root.iterdir():
+        if d.name == TEMPLATE:
+            continue
         if d.is_dir() and max((p.stat().st_mtime for p in d.rglob("*") if p.is_file()), default=d.stat().st_mtime) < old:
             shutil.rmtree(d, ignore_errors=True)
             n += 1

@@ -298,4 +298,7 @@ if __name__ == "__main__":
         print(f"Hosted editor on {HOST}:{PORT} (data in {eb.DATA}); removed {eb.sweep_workspaces()} old workspaces", flush=True)
     else:
         print(f"QA viewer: http://127.0.0.1:{PORT}   Editor: http://127.0.0.1:{PORT}/editor   (Ctrl+C to stop)")
+    if eb.HOSTED:                                  # the practice images, built once in the background
+        import threading
+        threading.Thread(target=eb.warm_practice, daemon=True).start()
     ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
