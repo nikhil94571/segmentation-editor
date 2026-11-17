@@ -274,6 +274,12 @@ s2 = eb.add_single(eb.import_session(b3["route"], {k: fsrc / v for k, v in b3["f
 names2 = [c["name"] for c in eb._read_lib("single")["cases"]][-2:]
 check("names: the same single image opened twice", names2 == ["Twice", "Twice (2)"] and json.loads((eb._sdir(s2["id"]) / "meta.json").read_text())["name"] == "Twice (2)", str(names2))
 
+# ---- export name without an original's name (the practice images): the image's own name ----
+pm2 = json.loads((eb._sdir(eb.open_library_case("practice", 0)["id"]) / "meta.json").read_text())
+eb.export(pm2["id"], [{"name": r["name"], "rings": r["rings"]} for r in pm2["regions"]], formats=["corrected_mask_tif"])
+got = sorted(q.name for q in (eb._sdir(pm2["id"]) / "export").glob("*_corrected_mask.tif"))
+check("export: an image with no original's name is named after itself", got == ["practice-01_corrected_mask.tif"], str(got))
+
 if saved_settings is None:
     eb.SETTINGS.unlink(missing_ok=True)
 else:
