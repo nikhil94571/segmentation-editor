@@ -283,7 +283,8 @@ const scenes = {
     await R.click(await R.el("#open"), { after: 0.9 });
     await R.move(await R.el("#libDrop")); await R.hold(1.6);
     await R.click(await R.el('#openTabs [data-tab="import"]'), { after: 0.8 });
-    await R.move({ x: 560, y: 330 }, { dur: 0.9 }); await R.hold(0.5); await R.move({ x: 560, y: 520 }, { dur: 0.9 }); await R.hold(0.9);
+    await R.move(await R.el("#oneDrop"), { dur: 0.9 }); await R.hold(1.4);                 // one image's folder goes here
+    await R.move(await R.el("details.more summary"), { dur: 0.8 }); await R.hold(0.9);    // or choose the files by hand
     await R.click(await R.el('#openTabs [data-tab="libs"]'), { after: 0.6 });
     await finish(0.4);
   },
