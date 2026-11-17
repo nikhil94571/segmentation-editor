@@ -242,20 +242,26 @@
       text: () => `Click the ruler, or press ${K("4")}. <b>Drag</b> for a straight distance. <b>Click a region</b> for its longest diameter, then <b>another region</b> for the gap between them. <b>Click two points</b> on an outline for the length along it. The <b>Measure</b> panel gives areas and the share of each class.`,
       async play(t) {
         await Promise.all([spot(t, [union(stage(), box(".rail", 0))]), look(t, 1290, 470, 1920, 990)]);
-        await clickEl(t, "#toolRuler", 500);
-        const clear = () => click(t, at(1830, 560), 600);
-        say("Drag: a straight distance", 2200);
-        await drag(t, at(1410, 560), at(1500, 640), 1.1, 1300);
+        await clickEl(t, "#toolRuler", 400);
+        // between gestures the last measurement is simply cleared (no trip away to click empty tissue): the time goes
+        // to each result, not to resetting
+        const clear = async () => { const s = S(); s.ruler = null; s.selected = null; Ed().refresh(); await wait(t, 120); };
+        // a drag across region-04, each end starting just inside it so it can be seen to snap onto the outline
+        const r4 = G.bbox(reg("region-04").paths), cy = (r4.y0 + r4.y1) / 2;
+        const ea = onLine("region-04", r4.x0, cy), eb = onLine("region-04", r4.x1, cy);
+        const ins = (p, q, px) => { const d = Math.hypot(q.x - p.x, q.y - p.y) || 1; return { x: p.x + (q.x - p.x) * px / d, y: p.y + (q.y - p.y) * px / d }; };
+        say("Drag: a straight distance, its ends snap to the outline", 2400);
+        await drag(t, ins(ea, eb, 7), ins(eb, ea, 7), 1.0, 1300);
         await clear();
         say("Click a region: its longest diameter", 2200);
         await click(t, inside("region-04"), 1600);
         await clear();
-        say("A region, then another: the gap between them", 2400);
-        await click(t, inside("region-04"), 800);
+        say("A region, then another: the gap between them", 2600);
+        await click(t, inside("region-04"), 250);
         await click(t, inside("region-02"), 1700);
         await clear();
         say("Two points on an outline: the length along it, both ways round", 3000);
-        await click(t, onLine("region-04", 1656, 552), 700);
+        await click(t, onLine("region-04", 1656, 552), 250);
         await click(t, onLine("region-04", 1720, 714), 1900);
         $("measure").classList.remove("shut"); Ed().refresh();
         $("measure").scrollIntoView({ block: "nearest" }); await wait(t, 60);
@@ -270,10 +276,11 @@
         : `Your work is saved as you go. To get the files, click <b>Export</b>, choose this image or the whole library, the folder to save in, and the file types you want: ImageJ, QuPath or plain masks.`,
       async play(t) {
         await Promise.all([spot(t, [box("#export")]), whole(t)]);
-        await clickEl(t, "#export", 200);
-        for (let i = 0; i < 40 && !($("exportModal").classList.contains("show") && $("exGo")); i++) await wait(t, 100);
-        await wait(t, 150);
-        await spot(t, [Object.assign(box("#exportModal .modal", 0), { r: 22 }), box("#export")]);
+        $("exportModal").classList.add("no-rise");                 // in the tour the dialog appears in place, so the
+        await clickEl(t, "#export", 0);                            // spotlight can go straight to where it will be
+        for (let i = 0; i < 40 && !($("exportModal").classList.contains("show") && $("exGo")); i++) await wait(t, 30);
+        await spot(t, [Object.assign(box("#exportModal .modal", 0), { r: 22 }), box("#export")], 260);
+        $("exportModal").classList.remove("no-rise");
         for (const v of ["mask_png", "roiset_zip"]) {            // tick two more file types
           const inp = document.querySelector(`input[name=exFmt][value=${v}]`); if (!inp || inp.checked) continue;
           const b = (inp.closest("label") || inp).getBoundingClientRect(); await move(t, { x: b.left + 16, y: b.top + b.height / 2 }); await wait(t, 160);

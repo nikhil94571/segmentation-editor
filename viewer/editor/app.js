@@ -1001,12 +1001,15 @@
   const expand = (el) => animateHeight(el, 0, el.scrollHeight);
   /* A dialog whose contents change (tabs, export progress, a library's images) glides to its new height. */
   function smoothResize(modal, body) {
-    let last = modal.getBoundingClientRect().height, busy = false;
+    let last = modal.getBoundingClientRect().height, busy = false, shownAt = 0;
     new ResizeObserver(() => { if (!busy) last = modal.getBoundingClientRect().height; }).observe(modal);
+    const bd = modal.closest(".backdrop");                         // only changes while it is open glide; opening does not
+    new MutationObserver(() => { if (bd.classList.contains("show")) { if (!shownAt) shownAt = performance.now(); } else shownAt = 0; })
+      .observe(bd, { attributes: true, attributeFilter: ["class"] });
     new MutationObserver(() => {
       if (busy) return;
       const to = modal.getBoundingClientRect().height;
-      if (Math.abs(to - last) < 3 || !modal.closest(".backdrop.show")) { last = to; return; }
+      if (Math.abs(to - last) < 3 || !bd.classList.contains("show") || !shownAt || performance.now() - shownAt < 120) { last = to; return; }
       busy = true; const from = last; last = to;
       animateHeight(modal, from, to, 240, false).then(() => { busy = false; last = modal.getBoundingClientRect().height; });
     }).observe(body, { childList: true, subtree: true, attributes: true, attributeFilter: ["hidden"] });
