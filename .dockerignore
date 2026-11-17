@@ -17,3 +17,10 @@ tutorial
 settings.json
 deploy
 docs
+local-data
+backups
+models
+data/bcss
+.venv-ml
+**/*.npz
+**/*.npy
