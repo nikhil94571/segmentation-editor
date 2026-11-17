@@ -723,10 +723,48 @@ def _blockiness(regs):
     return along / total if total else 0.0
 
 
+# ---------- partial uploads ----------
+# A big image file is first sent as its first 2 MB (a "head"): enough to read its size and any ImageJ outlines.
+# Only the files then chosen are sent in full, so a model's output folder with a 123 MB original costs ~20 MB of
+# upload, not 160 MB. A head is marked by a hidden file beside it, .<name>.head, holding the full size and the
+# path the page sent it under.
+
+def _head_mark(path):
+    return path.parent / f".{path.name}.head"
+
+
+def _is_head(path):
+    return _head_mark(Path(path)).exists()
+
+
+def _put(dest, data, head_of, sent):
+    """Write an uploaded file, or its head (head_of = the file's full size in bytes)."""
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    mark = _head_mark(dest)
+    if head_of:
+        mark.write_text(json.dumps({"size": int(head_of), "sent": sent}))
+    else:
+        mark.unlink(missing_ok=True)
+
+
+def _needs(root, files):
+    """The chosen files (paths relative to root) that so far are only heads -> what the page must send in full."""
+    out = []
+    for rel in files.values():
+        mark = _head_mark(Path(root) / rel)
+        if mark.exists():
+            m = json.loads(mark.read_text())
+            out.append({"path": m["sent"], "size": m["size"]})
+    return out
+
+
 def _probe(path):
-    """What one file holds -> dict, or None if it is nothing the editor uses."""
+    """What one file holds -> dict, or None if it is nothing the editor uses. Works on a head (see above): sizes and
+    ImageJ outlines are read from it; anything that needs the pixels is skipped."""
     ext = path.suffix.lower()
-    info = {"path": path, "name": path.name}
+    head = _is_head(path)
+    info = {"path": path, "name": path.name, "head": head}
     try:
         if ext == ".npz":
             z = coarse.read_npz(path)
@@ -747,6 +785,8 @@ def _probe(path):
                 shape = t.series[0].shape
             rgb = len(shape) == 3 and shape[-1] in (3, 4)
             has_rois = bool(md.get("Overlays") or md.get("ROI"))
+            if not rgb and head:                                  # a big one-channel map: assume probabilities until sent
+                return {**info, "kind": "map", "shape": tuple(shape[:2]), "binary": False}
             if not rgb:
                 a = h2.load_array(path)
                 return {**info, "kind": "map", "shape": a.shape[:2], "binary": len(np.unique(a)) <= 2}
@@ -754,7 +794,7 @@ def _probe(path):
         if ext in _PICTURE_EXT:
             with Image.open(path) as im:
                 size, mode = im.size, im.mode
-                rgb = mode not in ("1", "L", "I", "I;16", "F") and len(im.convert("RGB").resize((48, 48), Image.NEAREST).getcolors(2304) or range(9)) > 2
+                rgb = mode not in ("1", "L", "I", "I;16", "F") and (head or len(im.convert("RGB").resize((48, 48), Image.NEAREST).getcolors(2304) or range(9)) > 2)
             if not rgb:
                 return {**info, "kind": "map", "shape": (size[1], size[0]), "binary": None}
             return {**info, "kind": "picture", "shape": (size[1], size[0]), "rois": False}
@@ -779,7 +819,7 @@ def scan_bundle(root, paths):
                 p["blocky"] = _blockiness(p["regs"])
             except Exception:
                 p["rois"] = False
-    for m in (i for i in items if i["kind"] == "map" and i["binary"] is None):
+    for m in (i for i in items if i["kind"] == "map" and i["binary"] is None and not i.get("head")):
         m["binary"] = len(np.unique(h2.load_array(m["path"]))) <= 2
     grids = [i for i in items if i["kind"] == "grid"]
     maps = sorted((i for i in items if i["kind"] == "map"), key=lambda i: (i["binary"], bool(_DERIVED.search(i["name"])) is False))
@@ -832,7 +872,7 @@ def _bundle_choice(root, items, src, why, image=None, options=None):
             s += 1
         if _DERIVED.search(p["path"].stem):
             s -= 3
-        if p["shape"] == target:                                  # heatmaps and shaded pictures (only pictures of the model's
+        if p["shape"] == target and not p.get("head"):             # heatmaps and shaded pictures (only pictures of the model's
             s -= 6 * _tinted(_rgb(p["path"]))                     # size are looked at: a large original is never decoded here)
         return s
 
@@ -957,7 +997,7 @@ def library_choose(lid, index, outlines=None, image=None):
         c.pop(k, None)
     c.update(_bundle_case(b))
     _write_lib(lib)
-    return _case_view(c)
+    return {**_case_view(c), "needs": _needs(root, c["files"])}
 
 
 def _case_view(c):
@@ -1068,12 +1108,36 @@ def _space_check(incoming, cleanup=None):
                          "large batches run the editor on your own computer.")
 
 
-def library_put(lid, rel, data):
+def library_put(lid, rel, data, head_of=None):
     _space_check(len(data), cleanup=_lib_path(lid))
-    dest = _lib_path(lid) / "files" / _safe_rel(rel)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(data)
+    _put(_lib_path(lid) / "files" / _safe_rel(rel), data, head_of, rel)
     return {"ok": True}
+
+
+def library_needs(lid):
+    """Files the library's images are made from that were sent only as heads (see _put)."""
+    lib = _read_lib(lid)
+    root = _lib_root(lib)
+    return [n for c in lib["cases"] if not c.get("sid") for n in _needs(root, c.get("files", {}))]
+
+
+def library_rescan(lid):
+    """After the chosen files are sent in full, read the folders again (a file's details may have needed its pixels).
+    Choices made by hand are kept where the file is still offered."""
+    lib = _read_lib(lid)
+    root = _lib_root(lib)
+    old = {c["name"]: c for c in lib["cases"]}
+    lib["cases"], skipped = _build_cases(root, [p for p in root.rglob("*") if p.is_file()])
+    for c in lib["cases"]:
+        o = old.get(c["name"])
+        if o and o.get("chosen") and o["chosen"] != c.get("chosen") and "dir" in c:
+            try:
+                files = [p for p in (root / c["dir"]).iterdir() if p.is_file()]
+                c.update(_bundle_case(bundle_with(root, files, o["chosen"]["outlines"], o["chosen"]["image"])))
+            except ValueError:
+                pass
+    _write_lib(lib)
+    return {"id": lid, "cases": len(lib["cases"]), "skipped": skipped, "needs": library_needs(lid)}
 
 
 def _unzip_into(root, z):
@@ -1114,11 +1178,9 @@ def bundle_begin():
     return {"id": bid}
 
 
-def bundle_put(bid, rel, data):
+def bundle_put(bid, rel, data, head_of=None):
     _space_check(len(data), cleanup=_bundle_dir(bid))
-    dest = _bundle_dir(bid) / _safe_rel(rel)
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    dest.write_bytes(data)
+    _put(_bundle_dir(bid) / _safe_rel(rel), data, head_of, rel)
     return {"ok": True}
 
 
@@ -1145,7 +1207,7 @@ def zipfile_has_images(z):
 def bundle_scan(bid, outlines=None, image=None):
     root, files = _bundle_files(bid)
     out = bundle_with(root, files, outlines, image)
-    return {**out, "id": bid, "name": _bundle_name(root, out)}
+    return {**out, "id": bid, "name": _bundle_name(root, out), "needs": _needs(root, out["files"])}
 
 
 def _bundle_name(root, b):
@@ -1162,6 +1224,8 @@ def _bundle_name(root, b):
 def bundle_open(bid, outlines=None, image=None, threshold=None):
     root, files = _bundle_files(bid)
     b = bundle_with(root, files, outlines, image)
+    if _needs(root, b["files"]):
+        raise ValueError("Some of the chosen files are still being sent. Try again in a moment.")
     name = _bundle_name(root, b)
     meta = import_session(b["route"], {k: root / v for k, v in b["files"].items()}, name=name, threshold=threshold)
     _patch_meta(meta, picked=b["picked"], notes=(meta.get("notes") or []) + b["notes"],
@@ -1187,7 +1251,7 @@ def library_finish(lid):
         shutil.rmtree(_lib_path(lid), ignore_errors=True)
         raise ValueError("No usable images found in that folder.")
     _write_lib(lib)
-    return {"id": lid, "cases": len(lib["cases"]), "skipped": skipped}
+    return {"id": lid, "cases": len(lib["cases"]), "skipped": skipped, "needs": library_needs(lid)}
 
 
 PRACTICE = ("pash-low", "gynecomastoid-mid", "fibrocystic-mid", "prolif-fibrocystic-mid", "sclerosing-adenosis-mid",
@@ -1412,6 +1476,8 @@ def open_library_case(lid, index):
     root = _lib_root(lib)
     sid = f"{_slug(lid)[:30]}-{index:04d}"
     t = c.get("threshold", 0.5 if lid == "practice" else None)   # the practice maps were made around 0.5
+    if _needs(root, c.get("files", {})):
+        raise ValueError("This image's files are still being sent. Try again in a moment.")
     if not _from_template(lid, index, sid):
         meta = import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid, threshold=t)
         if c.get("original"):

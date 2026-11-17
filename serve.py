@@ -213,9 +213,9 @@ class Handler(SimpleHTTPRequestHandler):
         if eb.HOSTED and url.path in ("/api/editor/selftest", "/api/editor/choose-folder", "/api/editor/reveal", "/api/decision"):
             return self.send_error(404)
         if url.path == "/api/editor/library/put":       # one file of a library being imported (raw body)
-            return self._editor(eb.library_put, q.get("id", [""])[0], q.get("path", [""])[0], self._body())
+            return self._editor(eb.library_put, q.get("id", [""])[0], q.get("path", [""])[0], self._body(), int(q["head"][0]) if q.get("head") else None)
         if url.path == "/api/editor/bundle/put":        # one file of a single image's folder (raw body)
-            return self._editor(eb.bundle_put, q.get("id", [""])[0], q.get("path", [""])[0], self._body())
+            return self._editor(eb.bundle_put, q.get("id", [""])[0], q.get("path", [""])[0], self._body(), int(q["head"][0]) if q.get("head") else None)
         if url.path == "/api/editor/upload":            # raw file body -> a token for the import call
             name = re.sub(r"[^a-zA-Z0-9._-]+", "_", q.get("name", ["file"])[0])[-80:]
             eb.uploads().mkdir(parents=True, exist_ok=True)
@@ -243,6 +243,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self._editor(one_off)
         if url.path == "/api/editor/library/hide":
             return self._editor(eb.set_hidden, body.get("id", ""), bool(body.get("hidden")))
+        if url.path == "/api/editor/library/rescan":
+            return self._editor(eb.library_rescan, body.get("id", ""))
         if url.path == "/api/editor/library/choose":
             return self._editor(eb.library_choose, body.get("id", ""), int(body.get("index", 0)),
                                 body.get("outlines"), body.get("image"))

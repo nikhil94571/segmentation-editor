@@ -137,6 +137,21 @@ try:
     check("only the pictures: read as a shaded picture", sb["route"] == "screenshot")
 except ValueError as e:
     check("only the pictures: read as a shaded picture", False, str(e))
+# partial uploads: big image files sent as their first 2 MB give the same choices, and say which to send in full
+hd = TMP / "heads" / f0.name
+hd.mkdir(parents=True)
+for q in files_of(f0):
+    data = q.read_bytes()
+    if q.stat().st_size > 4 * 2**20 and q.suffix.lower() in (".tif", ".tiff", ".png", ".jpg"):
+        eb._put(hd / q.name, data[:2 * 2**20], len(data), f"{f0.name}/{q.name}")
+    else:
+        eb._put(hd / q.name, data, None, f"{f0.name}/{q.name}")
+sh = eb.scan_bundle(hd, files_of(hd))
+full = eb.scan_bundle(f0, files_of(f0))
+need = eb._needs(hd, sh["files"])
+check("partial upload: same choices from 2 MB heads as from the full files", sh["chosen"] == full["chosen"] and sh["original"] == full["original"],
+      f"{sh['chosen']} / {sh['original']}")
+check("partial upload: only the chosen image must be sent in full", [n["path"].split("/")[-1] for n in need] == [f"{f0.name}_predicted_lesion_imagej.tif"], str(need))
 no_ref = variant(f0, lambda n: n != f"{f0.name}.tif")
 outs = []
 for folder in (f0, no_ref):

@@ -1167,7 +1167,21 @@
   async function putAll(urlFor, list, bar) {
     const total = list.reduce((a, x) => a + x.file.size, 0) || 1;
     let done = 0;
-    for (const x of list) { await xhrPut(urlFor(x.path), x.file, (l) => bar.set((done + l) / total)); done += x.file.size; bar.set(done / total); }
+    for (const x of list) {
+      await xhrPut(urlFor(x.path) + (x.head ? "&head=" + x.head : ""), x.file, (l) => bar && bar.set((done + l) / total));
+      done += x.file.size; if (bar) bar.set(done / total);
+    }
+  }
+  /* Upload in two passes. A big image file first goes up as its first 2 MB: the server reads its size and any ImageJ
+     outlines from that, and works out which files are the image and the model's output. Only the files chosen are
+     then sent in full (for a model's output folder with a large original, ~20 MB instead of ~160 MB). */
+  const HEAD_BYTES = 2 * 1024 * 1024, HEAD_OVER = 4 * 1024 * 1024;
+  const firstPass = (list) => list.map((x) => (x.file.size > HEAD_OVER && /\.(tiff?|png|jpe?g)$/i.test(x.path)
+    ? { path: x.path, file: x.file.slice(0, HEAD_BYTES), head: x.file.size } : x));
+  async function sendInFull(needs, files, urlFor, bar) {
+    const byPath = new Map(files.map((x) => [x.path, x.file]));
+    const list = needs.map((n) => ({ path: n.path, file: byPath.get(n.path) })).filter((x) => x.file);
+    if (list.length) await putAll(urlFor, list, bar);
   }
   function grower(boxId, innerId) {                            // a box whose height follows its contents, animated
     const box = $(boxId), inner = $(innerId);
@@ -1193,7 +1207,7 @@
   }
   const barHtml = (key, name) => `<div class="up"><div class="up-top"><b>${esc(name)}</b><span id="${key}Pct">Uploading 0%</span></div><div class="up-bar" id="${key}Bar"><i></i></div></div>`;
   const barOf = (key) => ({
-    set(f) { const p = Math.round(100 * Math.min(1, f)); const i = $(key + "Bar"); if (i) { i.firstChild.style.width = p + "%"; $(key + "Pct").textContent = `Uploading ${p}%`; } },
+    set(f) { const p = Math.round(100 * Math.min(1, f)); const i = $(key + "Bar"); if (i) { i.classList.remove("busy"); i.firstChild.style.width = p + "%"; $(key + "Pct").textContent = `Uploading ${p}%`; } },
     busy(text) { const i = $(key + "Bar"); if (i) { i.classList.add("busy"); $(key + "Pct").textContent = text; } },
   });
   const choiceRows = (opts, chosen, ids) => {
@@ -1216,15 +1230,21 @@
     const bar = barOf("lib");
     try {
       const { id } = await api("/api/editor/library/begin", { name: name || "Library" });
-      await putAll((p) => `/api/editor/library/put?id=${encodeURIComponent(id)}&path=${encodeURIComponent(p)}`,
-        zip ? [{ path: "__library__.zip", file: zip }] : files, bar);
+      const url = (p) => `/api/editor/library/put?id=${encodeURIComponent(id)}&path=${encodeURIComponent(p)}`;
+      await putAll(url, zip ? [{ path: "__library__.zip", file: zip }] : firstPass(files), bar);
       bar.busy("Reading the files…");
-      const j = await api("/api/editor/library/finish", { id });
+      let j = await api("/api/editor/library/finish", { id });
+      if (j.needs && j.needs.length) {                           // the chosen big files, now in full
+        await sendInFull(j.needs, files, url, bar);
+        bar.busy("Reading the files…");
+        j = await api("/api/editor/library/rescan", { id });
+        if (j.needs && j.needs.length) await sendInFull(j.needs, files, url, bar);
+      }
       libBox.hide();
-      await showReview(id, j.skipped);
+      await showReview(id, j.skipped, (needs) => sendInFull(needs, files, url, null));
     } catch (e) { libBox.hide(); err.textContent = e.message; }
   }
-  async function showReview(id, skipped) {
+  async function showReview(id, skipped, send) {
     const lib = await api("/api/editor/library?id=" + encodeURIComponent(id));
     const accept = async () => {                                  // stays up, saying so, until the first image is open
       const btns = [...document.querySelectorAll("#libReview [data-accept]")];
@@ -1251,7 +1271,12 @@
           try {
             const body = { id, index: i, [key]: s.value };
             if (key === "image") { const o = el.querySelector(`#rvOut${i}`); if (o) body.outlines = o.value; }
-            const c = await api("/api/editor/library/choose", body);
+            let c = await api("/api/editor/library/choose", body);
+            if (c.needs && c.needs.length && send) {              // a file sent only in part so far: send it in full
+              $("revErr").textContent = `Uploading ${c.needs.map((n) => n.path.split("/").pop()).join(", ")}…`;
+              await send(c.needs);
+              c = await api("/api/editor/library/choose", body);
+            }
             el.innerHTML = item(c, i); wire(el, i); $("revErr").textContent = "";
           } catch (e) { $("revErr").textContent = e.message; }
           el.classList.remove("busy");
@@ -1298,7 +1323,7 @@
 
   /* Single image: one image's folder (or a .zip of it). The server works out which file is the image and which
      holds the model's output, by what is in them; the choice is shown and can be changed. */
-  let oneId = null;
+  let oneId = null, oneSend = null;
   const oneBox = grower("onePick", "onePickIn");
   async function uploadOne(files, zip) {
     const err = $("importErr"); err.textContent = "";
@@ -1309,9 +1334,17 @@
     const bar = barOf("one");
     try {
       oneId = (await api("/api/editor/bundle/begin", {})).id;
-      await putAll((p) => `/api/editor/bundle/put?id=${encodeURIComponent(oneId)}&path=${encodeURIComponent(p)}`, zip ? [{ path: zip.name, file: zip }] : files, bar);
+      const id = oneId, url = (p) => `/api/editor/bundle/put?id=${encodeURIComponent(id)}&path=${encodeURIComponent(p)}`;
+      oneSend = (needs, b) => sendInFull(needs, zip ? [] : files, url, b);
+      await putAll(url, zip ? [{ path: zip.name, file: zip }] : firstPass(files), bar);
       bar.busy("Reading the files…");
-      showPicks(await api("/api/editor/bundle/scan", { id: oneId }));
+      let b = await api("/api/editor/bundle/scan", { id });
+      if (b.needs && b.needs.length) {                           // the chosen big files, now in full
+        await oneSend(b.needs, bar);
+        bar.busy("Reading the files…");
+        b = await api("/api/editor/bundle/scan", { id });
+      }
+      showPicks(b);
     } catch (e) { oneBox.hide(); oneId = null; err.textContent = e.message; }
   }
   function showPicks(b) {
@@ -1319,7 +1352,19 @@
     oneBox.show(`<div class="pk-head"><span>Folder name:</span><b>${esc(b.name)}</b><button class="btn" id="pkRemove">Remove</button></div>
       ${choiceRows(b.options, b.chosen, ["pkOut", "pkImg"])}
       <div class="actions"><button class="btn primary" id="pkOpen">Open</button></div>`, () => {
-      const rescan = async (body) => { try { $("importErr").textContent = ""; showPicks(await api("/api/editor/bundle/scan", body)); } catch (e) { $("importErr").textContent = e.message; } };
+      const rescan = async (body) => {
+        try {
+          $("importErr").textContent = "";
+          let nb = await api("/api/editor/bundle/scan", body);
+          if (nb.needs && nb.needs.length && oneSend) {           // a file sent only in part so far: send it in full
+            $("importErr").textContent = `Uploading ${nb.needs.map((n) => n.path.split("/").pop()).join(", ")}…`;
+            await oneSend(nb.needs, null);
+            nb = await api("/api/editor/bundle/scan", body);
+            $("importErr").textContent = "";
+          }
+          showPicks(nb);
+        } catch (e) { $("importErr").textContent = e.message; }
+      };
       if ($("pkOut")) $("pkOut").onchange = () => rescan({ id: oneId, outlines: $("pkOut").value });
       if ($("pkImg")) $("pkImg").onchange = () => rescan(choice());
       $("pkRemove").onclick = () => { oneId = null; oneBox.hide(); $("importErr").textContent = ""; };
