@@ -63,9 +63,10 @@ a straight line, so no curve bows out past the image. A smooth oval comes out as
 Measured on 17 Nov 2026 (`dev/compare.py`) on 11 synthetic folders built to match a real pipeline's output format
 (`dev/make_coarse_cases.py`: 128 × 154 tiles over a 2048 × 2467 image): overlap with the reference outline rose in
 every one (0.84–0.94 before, 0.87–0.96 after), the area shrank by 0.3–2.2%, as rounded corners do, and the
-editor's nodes went from 2,576 to 639 (every one- or two-tile mark the model made is kept). Blurring the tile values first was tried and dropped: it cut nodes further but
+editor's nodes went from 2,576 to 633 (every one- or two-tile mark the model made is kept). Blurring the tile values first was tried and dropped: it cut nodes further but
 shrank thin structures and lowered the overlap (0.895 to 0.826 at one tile of blur).
-`dev/check_coarse.py` checks grid detection, that smoothing does not shift outlines, and how files are chosen.
+**Validated 17 Nov 2026** (QA pass, by hand on all images): [the record](docs/validation/2026-11-17-tiled-output-qa.md), git tag
+`segmentation-qa-pass-2026-11-17`. `dev/check_coarse.py` checks grid detection, that smoothing does not shift outlines, and how files are chosen.
 
 `python serve.py`, then **http://127.0.0.1:8765/compare** shows each one side by side, zoomable, with the nodes:
 the output as delivered, and the editor's version of it. Its data is kept outside the repository
