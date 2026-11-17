@@ -1206,10 +1206,47 @@
     };
   }
   const barHtml = (key, name) => `<div class="up"><div class="up-top"><b>${esc(name)}</b><span id="${key}Pct">Uploading 0%</span></div><div class="up-bar" id="${key}Bar"><i></i></div></div>`;
-  const barOf = (key) => ({
-    set(f) { const p = Math.round(100 * Math.min(1, f)); const i = $(key + "Bar"); if (i) { i.classList.remove("busy"); i.firstChild.style.width = p + "%"; $(key + "Pct").textContent = `Uploading ${p}%`; } },
-    busy(text) { const i = $(key + "Bar"); if (i) { i.classList.add("busy"); $(key + "Pct").textContent = text; } },
-  });
+  /* One bar for the whole upload, however many steps it takes: each step fills its own stretch of the bar
+     (span), waits creep slowly forward (wait), and the bar never goes back. */
+  const barOf = (key) => {
+    let shown = 0, lo = 0, hi = 1, timer = null;
+    const stop = () => { clearInterval(timer); timer = null; };
+    const paint = (f) => {
+      shown = Math.max(shown, Math.min(1, f)); const i = $(key + "Bar"); if (!i) return;
+      i.firstChild.style.width = (100 * shown).toFixed(1) + "%"; $(key + "Pct").textContent = `Uploading ${Math.floor(100 * shown)}%`;
+    };
+    return {
+      span(a, b) { stop(); lo = Math.max(a, shown); hi = Math.max(b, lo); },
+      set(f) { stop(); paint(lo + f * (hi - lo)); },
+      wait(to) { stop(); timer = setInterval(() => paint(shown + (to - shown) * 0.04), 100); },
+      done() { stop(); paint(1); },
+    };
+  };
+  /* A guess at what the second pass will send, so the first pass gets a fair share of the bar: for each folder,
+     the smallest big TIFF (the model's image; the original is larger and is never sent in full). */
+  const restGuess = (files) => {
+    const by = new Map();
+    for (const x of files) {
+      if (!(x.file.size > HEAD_OVER && /\.(tiff?|png|jpe?g)$/i.test(x.path))) continue;
+      const dir = x.path.split("/").slice(0, -1).join("/"), tif = /\.tiff?$/i.test(x.path), c = by.get(dir);
+      if (!c || (tif && !c.tif) || (tif === c.tif && x.file.size < c.size)) by.set(dir, { size: x.file.size, tif });
+    }
+    return [...by.values()].reduce((a, v) => a + v.size, 0);
+  };
+  // Send the files: heads first, the server reads them, then the chosen files in full. One bar throughout.
+  async function sendFiles(bar, first, files, url, scan, rescan) {
+    const P = first.reduce((a, x) => a + x.file.size, 0), E = first.some((x) => x.head) ? restGuess(files) : 0;
+    const a = 0.92 * P / (P + E || 1);
+    bar.span(0, a); await putAll(url, first, bar);
+    bar.wait(a + 0.04 * (1 - a));
+    let j = await scan();
+    for (let round = 0; round < 2 && j.needs && j.needs.length; round++) {   // the chosen big files, now in full
+      bar.span(0, round ? 0.985 : 0.96); await sendInFull(j.needs, files, url, bar);
+      bar.wait(0.995); j = await rescan();
+    }
+    bar.done();
+    return j;
+  }
   const choiceRows = (opts, chosen, ids) => {
     const base = (f) => f.split("/").pop();                        // the file's own name; the folder is shown above
     const row = (label, id, items, cur) => `<label class="pk-row"><span>${label}</span>${items.length > 1
@@ -1231,15 +1268,8 @@
     try {
       const { id } = await api("/api/editor/library/begin", { name: name || "Library" });
       const url = (p) => `/api/editor/library/put?id=${encodeURIComponent(id)}&path=${encodeURIComponent(p)}`;
-      await putAll(url, zip ? [{ path: "__library__.zip", file: zip }] : firstPass(files), bar);
-      bar.busy("Reading the files…");
-      let j = await api("/api/editor/library/finish", { id });
-      if (j.needs && j.needs.length) {                           // the chosen big files, now in full
-        await sendInFull(j.needs, files, url, bar);
-        bar.busy("Reading the files…");
-        j = await api("/api/editor/library/rescan", { id });
-        if (j.needs && j.needs.length) await sendInFull(j.needs, files, url, bar);
-      }
+      const j = await sendFiles(bar, zip ? [{ path: "__library__.zip", file: zip }] : firstPass(files), files, url,
+        () => api("/api/editor/library/finish", { id }), () => api("/api/editor/library/rescan", { id }));
       libBox.hide();
       await showReview(id, j.skipped, (needs) => sendInFull(needs, files, url, null));
     } catch (e) { libBox.hide(); err.textContent = e.message; }
@@ -1336,15 +1366,8 @@
       oneId = (await api("/api/editor/bundle/begin", {})).id;
       const id = oneId, url = (p) => `/api/editor/bundle/put?id=${encodeURIComponent(id)}&path=${encodeURIComponent(p)}`;
       oneSend = (needs, b) => sendInFull(needs, zip ? [] : files, url, b);
-      await putAll(url, zip ? [{ path: zip.name, file: zip }] : firstPass(files), bar);
-      bar.busy("Reading the files…");
-      let b = await api("/api/editor/bundle/scan", { id });
-      if (b.needs && b.needs.length) {                           // the chosen big files, now in full
-        await oneSend(b.needs, bar);
-        bar.busy("Reading the files…");
-        b = await api("/api/editor/bundle/scan", { id });
-      }
-      showPicks(b);
+      const scan = () => api("/api/editor/bundle/scan", { id });
+      showPicks(await sendFiles(bar, zip ? [{ path: zip.name, file: zip }] : firstPass(files), zip ? [] : files, url, scan, scan));
     } catch (e) { oneBox.hide(); oneId = null; err.textContent = e.message; }
   }
   function showPicks(b) {
