@@ -40,7 +40,8 @@
 
   /* ---------------- session ---------------- */
   const pts = (ring) => ring.map(([x, y]) => ({ x, y }));
-  const fitRings = (rings) => rings.map((r) => G.fitClosed(pts(r), FIT_TOL)).filter((p) => p.nodes.length >= 1 && p.segs.length >= 1);
+  const fitTol = () => (S.meta && S.meta.fit_tol) || FIT_TOL;   // tiled model output: a quarter of a tile
+  const fitRings = (rings) => rings.map((r) => G.fitClosed(pts(r), fitTol())).filter((p) => p.nodes.length >= 1 && p.segs.length >= 1);
 
   async function openSession(sid) {
     const { meta, state } = await api("/api/editor/session?id=" + encodeURIComponent(sid));
@@ -62,6 +63,7 @@
     if (!meta.has_prob) { S.showHeat = false; $("showHeat").checked = false; }
     $("saved").textContent = state ? "Saved" : "";
     fitView(); refresh();
+    if (meta.coarse && !state) toast(`The model answered in ${meta.coarse.grid[0]} × ${meta.coarse.grid[1]} tiles; the outlines were smoothed to follow its probabilities.`);
   }
   /* The regions exactly as the model gave them. */
   const modelRegions = () => S.meta.regions.map((r) => ({
@@ -864,8 +866,14 @@
     } catch (e) { toast(e.message); }
   }
   /* Export: choose what (this image or a whole library) and where, then confirm. */
-  const FORMATS = [["mask_png", "Mask (PNG)"], ["overlay_png", "Shaded image (PNG)"], ["imagej_tif", "ImageJ image with regions (TIF)"],
+  const FORMATS = [["corrected_mask_tif", "Corrected mask (TIF)"], ["imagej_tif", "ImageJ image with regions (TIF)"],
+    ["mask_png", "Mask (PNG)"], ["overlay_png", "Shaded image (PNG)"],
     ["roiset_zip", "ImageJ ROI set (ZIP)"], ["qupath_geojson", "QuPath annotations (GeoJSON)"]];
+  const FMT_KEY = "seg-editor-export-formats";                    // each person's last choice, in their browser
+  const lastFormats = () => {
+    try { const v = JSON.parse(store.get(FMT_KEY) || "null"); if (Array.isArray(v) && v.some((k) => FORMATS.some(([f]) => f === k))) return v; } catch (e) {}
+    return ["corrected_mask_tif"];
+  };
   const tilde = (p, home) => (home && p.startsWith(home) ? "~" + p.slice(home.length) : p);
   async function showExport(scope, libId, libName) {
     const lib = libId ? { id: libId, name: libName } : S.lib ? { id: S.lib.id, name: S.lib.name, n: S.lib.cases.length } : null;
@@ -873,7 +881,7 @@
     $("openModal").classList.remove("show");
     let st; try { st = await api("/api/editor/settings"); } catch (e) { toast(e.message); return; }
     let dest = st.export_dir;
-    const fmts = ["imagej_tif", "overlay_png"];                 // ticked every time the dialog opens; the rest are opt-in
+    const fmts = lastFormats();                                 // the corrected mask unless this person chose others last time
     $("exportBody").innerHTML = `
       <div class="opts">
         <label class="opt"><input type="radio" name="exScope" value="image" ${scope === "image" ? "checked" : ""} ${S.sid ? "" : "disabled"}>
@@ -897,6 +905,7 @@
     $("exGo").onclick = () => {
       const chosen = [...document.querySelectorAll("input[name=exFmt]:checked")].map((x) => x.value);
       if (!chosen.length) { $("exErr").textContent = "Tick at least one file type."; return; }
+      store.set(FMT_KEY, JSON.stringify(chosen));
       const typed = $("exDest").value.trim();                   // "~" stands for the home folder
       if (typed) dest = typed === "~" || /^~[\\/]/.test(typed) ? st.home + typed.slice(1) : typed;
       runExport(document.querySelector("input[name=exScope]:checked").value, lib, dest, chosen);
@@ -975,6 +984,7 @@
     const pv = $("preview"), m = document.querySelector("#openModal .modal").getBoundingClientRect();
     $("previewImg").src = `/api/editor/library/preview?id=${encodeURIComponent(S.lib.id)}&index=${i}&t=${Date.now()}`;
     $("previewName").textContent = S.lib.cases[i].name;
+    $("previewPicked").textContent = (S.lib.cases[i].picked || []).join(" · ");
     pv.hidden = false;
     pv.style.left = Math.min(m.right + 16, window.innerWidth - 312) + "px";      // beside the dialog, with a gap
     pv.style.top = Math.max(12, Math.min(m.top + 96, window.innerHeight - 370)) + "px";
@@ -1075,6 +1085,76 @@
       const s = stripTop(out); importLibrary(s.files, null, s.name);
     };
   }
+  /* Single image: one image's folder (or .zip, or loose files). The server works out which file is the image
+     and which holds the model's output, by what is in them; this shows its choice, which can be changed. */
+  let oneId = null;
+  async function uploadOne(files, zip) {
+    const err = $("importErr"), pick = $("onePick");
+    files = (files || []).filter((x) => !x.path.split("/").some((part) => part.startsWith(".")));
+    if (!files.length && !zip) { err.textContent = "Nothing to open in that."; return; }
+    pick.hidden = true; err.textContent = "Uploading…";
+    try {
+      oneId = (await api("/api/editor/bundle/begin", {})).id;
+      const put = async (path, file) => {
+        const r = await fetch(`/api/editor/bundle/put?id=${encodeURIComponent(oneId)}&path=${encodeURIComponent(path)}`, { method: "POST", body: file });
+        if (!r.ok) throw new Error("Upload failed: " + path);
+      };
+      if (zip) await put(zip.name, zip);
+      else { let n = 0; for (const x of files) { err.textContent = `Uploading ${++n} of ${files.length}…`; await put(x.path, x.file); } }
+      err.textContent = "Looking at the files…";
+      showPicks(await api("/api/editor/bundle/scan", { id: oneId }));
+      err.textContent = "";
+    } catch (e) { err.textContent = e.message; }
+  }
+  function showPicks(b) {
+    const pick = $("onePick"), cur = b.files.model || b.files.rois || (b.route === "imagej" ? b.files.imagej : b.files.overlay);
+    const img = b.files.image || b.files.imagej || b.files.overlay;
+    const outs = b.options.outlines, imgs = b.options.image;
+    pick.innerHTML = `<h4>${esc(b.name)}</h4>
+      ${outs.length > 1 ? `<label class="pk-row"><span>Outlines from</span><select id="pkOut">${outs.map((o) => `<option value="${esc(o.file)}" ${o.file === cur ? "selected" : ""}>${esc(o.file)}: ${esc(o.what)}</option>`).join("")}</select></label>` : ""}
+      ${imgs.length > 1 ? `<label class="pk-row"><span>Image</span><select id="pkImg">${imgs.map((f) => `<option value="${esc(f)}" ${f === img ? "selected" : ""}>${esc(f)}</option>`).join("")}</select></label>` : ""}
+      <ul class="pk-notes">${[...b.picked.filter((t, k) => !(k === 0 && outs.length > 1) && !(k === 1 && imgs.length > 1)), ...b.notes].map((t) => `<li>${esc(t)}</li>`).join("")}</ul>
+      <div class="actions"><button class="btn" id="pkAgain">Choose other files</button><button class="btn primary" id="pkOpen">Open</button></div>`;
+    pick.hidden = false;
+    const choice = () => ({ id: oneId, outlines: $("pkOut") ? $("pkOut").value : null, image: $("pkImg") ? $("pkImg").value : null });
+    const rescan = async () => { try { $("importErr").textContent = ""; showPicks(await api("/api/editor/bundle/scan", choice())); } catch (e) { $("importErr").textContent = e.message; } };
+    if ($("pkOut")) $("pkOut").onchange = () => { if ($("pkImg")) $("pkImg").value = ""; rescan(); };
+    if ($("pkImg")) $("pkImg").onchange = rescan;
+    $("pkAgain").onclick = () => { pick.hidden = true; oneId = null; };
+    $("pkOpen").onclick = async () => {
+      $("importErr").textContent = "Opening…";
+      try {
+        const j = await api("/api/editor/bundle/open", choice());
+        oneId = null; pick.hidden = true;
+        await useLibrary(j.library, j.index);
+        $("openModal").classList.remove("show"); $("importErr").textContent = "";
+      } catch (e) { $("importErr").textContent = e.message; }
+    };
+    $("pkOpen").focus();
+  }
+  function wireOneDrop() {
+    const drop = $("oneDrop"), dir = $("f_one_dir"), many = $("f_one_files");
+    drop.onclick = (e) => { if (e.target.id !== "oneFiles") dir.click(); };
+    drop.onkeydown = (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); e.stopPropagation(); dir.click(); } };
+    $("oneFiles").onclick = (e) => { e.stopPropagation(); many.click(); };
+    dir.onchange = () => { const l = [...dir.files].map((f) => ({ path: f.webkitRelativePath || f.name, file: f })); dir.value = ""; uploadOne(l); };
+    many.onchange = () => {
+      const l = [...many.files]; many.value = "";
+      if (l.length === 1 && /\.zip$/i.test(l[0].name)) return uploadOne(null, l[0]);
+      uploadOne(l.map((f) => ({ path: f.name, file: f })));
+    };
+    drop.ondragover = (e) => { e.preventDefault(); drop.classList.add("over"); };
+    drop.ondragleave = () => drop.classList.remove("over");
+    drop.ondrop = async (e) => {
+      e.preventDefault(); drop.classList.remove("over");
+      const items = [...e.dataTransfer.items].map((it) => it.webkitGetAsEntry && it.webkitGetAsEntry()).filter(Boolean);
+      const lone = e.dataTransfer.files.length === 1 ? e.dataTransfer.files[0] : null;
+      if (lone && /\.zip$/i.test(lone.name) && items.length === 1 && items[0].isFile) return uploadOne(null, lone);
+      $("importErr").textContent = "Reading…";
+      const out = []; try { for (const en of items) await readEntry(en, out); } catch (err) { $("importErr").textContent = "Could not read that folder."; return; }
+      uploadOne(out);
+    };
+  }
   function setTab(name) {
     document.querySelectorAll("#openTabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
     document.querySelectorAll("#openModal [data-pane]").forEach((p) => (p.hidden = p.dataset.pane !== name));
@@ -1109,7 +1189,7 @@
 
   /* ---------------- wiring ---------------- */
   $("prevCase").onclick = () => openCase(S.caseIndex - 1); $("nextCase").onclick = () => openCase(S.caseIndex + 1);
-  wireLibraryDrop(); $("doneBtn").onclick = toggleDone;
+  wireLibraryDrop(); wireOneDrop(); $("doneBtn").onclick = toggleDone;
   $("open").onclick = showOpen; $("openEmpty").onclick = showOpen; $("export").onclick = () => showExport();
   $("undo").onclick = undo; $("redo").onclick = redo;
   $("zoomIn").onclick = () => zoomAt(1.25); $("zoomOut").onclick = () => zoomAt(0.8); $("fit").onclick = fitView;

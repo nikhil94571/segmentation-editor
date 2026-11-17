@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Import comparison</title>
+<style>
+:root {
+  --bg: #F3F3F8; --panel: #FFFFFF; --ink: #12142B; --ink-soft: #3F4466; --ink-mute: #7A7FA3;
+  --line: rgba(60,64,120,.16); --accent: #4F5BD5; --accent-tint: rgba(79,91,213,.10); --good: #1F7A4D; --warn: #A15C07;
+  --canvas: #E6E6EE;
+  --font: -apple-system, 'SF Pro Text', 'Inter', system-ui, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) { --bg: #1C1D22; --panel: #26272E; --ink: #F2F3F5; --ink-soft: #C3C6CE; --ink-mute: #8B8F9A;
+    --line: rgba(255,255,255,.13); --accent: #7C9BFF; --accent-tint: rgba(124,155,255,.14); --good: #5BC28C; --warn: #E0A54A; --canvas: #141418; }
+}
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body { background: var(--bg); color: var(--ink); font: 13px/1.45 var(--font); display: grid; grid-template-columns: 260px 1fr; }
+aside { background: var(--panel); border-right: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }
+aside h1 { font-size: 15px; margin: 16px 16px 4px; }
+aside p.sub { margin: 0 16px 12px; color: var(--ink-mute); font-size: 12px; }
+#list { overflow: auto; flex: 1; padding: 0 8px 12px; }
+#list button { display: block; width: 100%; text-align: left; border: 0; background: none; color: var(--ink); padding: 8px 10px;
+  border-radius: 8px; cursor: pointer; font: inherit; }
+#list button:hover { background: var(--accent-tint); }
+#list button.on { background: var(--accent-tint); box-shadow: inset 0 0 0 1px var(--accent); }
+#list .n { font-weight: 600; display: block; }
+#list .s { color: var(--ink-mute); font-size: 12px; }
+#list .grp { margin: 12px 10px 4px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--ink-mute); }
+main { display: grid; grid-template-rows: auto 1fr; min-width: 0; min-height: 0; }
+header { padding: 10px 14px; border-bottom: 1px solid var(--line); background: var(--panel); display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+header .t { font-weight: 600; font-size: 14px; }
+header .st { color: var(--ink-soft); }
+header .st b { color: var(--ink); }
+header .ctl { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+header label { display: flex; gap: 6px; align-items: center; color: var(--ink-soft); cursor: pointer; }
+button.b { font: inherit; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+#notes { flex-basis: 100%; color: var(--ink-mute); font-size: 12px; }
+.panes { display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--line); min-height: 0; }
+.pane { position: relative; background: var(--canvas); min-width: 0; min-height: 0; overflow: hidden; }
+.pane canvas { position: absolute; inset: 0; width: 100%; height: 100%; cursor: grab; touch-action: none; }
+.pane canvas.drag { cursor: grabbing; }
+.cap { position: absolute; left: 10px; top: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 6px 10px; font-size: 12px; pointer-events: none; max-width: calc(100% - 20px); }
+.cap b { display: block; font-size: 13px; }
+.key { position: absolute; left: 10px; bottom: 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px;
+  padding: 5px 10px; font-size: 12px; color: var(--ink-soft); pointer-events: none; }
+.sw { display: inline-block; width: 18px; height: 3px; vertical-align: middle; margin: 0 4px 0 8px; border-radius: 2px; }
+.dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: #F0A63A; border: 1px solid #6B3F06; vertical-align: -1px; margin: 0 4px 0 8px; }
+.empty { padding: 40px; color: var(--ink-mute); }
+@media (max-width: 760px) { body { grid-template-columns: 1fr; grid-template-rows: 180px 1fr; } .panes { grid-template-columns: 1fr; grid-template-rows: 1fr 1fr; } }
+</style>
+</head>
+<body>
+<aside>
+  <h1>Import comparison</h1>
+  <p class="sub">The model's output as delivered, beside the editor's version of it. Scroll or pinch to zoom, drag to move; both sides follow. ← → change image.</p>
+  <div id="list"></div>
+</aside>
+<main>
+  <header>
+    <span class="t" id="title">–</span>
+    <span class="st" id="stats"></span>
+    <span class="ctl">
+      <label title="The expert's outline, when the folder has one"><input type="checkbox" id="showRef" checked> Reference</label>
+      <label title="Left side: the nodes the editor gave this output before smoothing"><input type="checkbox" id="showOld"> Old nodes on the left</label>
+      <button class="b" id="fit">Fit</button>
+    </span>
+    <span id="notes"></span>
+  </header>
+  <div class="panes">
+    <div class="pane"><canvas id="cvL"></canvas><div class="cap" id="capL"></div><div class="key" id="keyL"></div></div>
+    <div class="pane"><canvas id="cvR"></canvas><div class="cap" id="capR"></div><div class="key" id="keyR"></div></div>
+  </div>
+</main>
+<script src="/viewer/editor/geom.js"></script>
+<script>
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const BLUE = "10,80,235", REF = "#F5C400";
+  const S = { index: [], i: -1, c: null, img: null, view: { s: 1, x: 0, y: 0 }, left: null, right: null, oldPaths: null, newPaths: null };
+  const fit = (rings, tol) => rings.map((r) => G.fitClosed(r.map(([x, y]) => ({ x, y })), tol)).filter((p) => p.nodes.length && p.segs.length);
+  const count = (paths) => paths.reduce((n, rs) => n + rs.reduce((m, p) => m + p.nodes.length, 0), 0);
+
+  function trace(p2, path) {
+    p2.moveTo(path.nodes[0].x, path.nodes[0].y);
+    for (let i = 0; i < path.segs.length; i++) { const b = G.cubic(path, i); p2.bezierCurveTo(b[1].x, b[1].y, b[2].x, b[2].y, b[3].x, b[3].y); }
+    p2.closePath();
+  }
+  function poly(p2, ring) { ring.forEach(([x, y], k) => (k ? p2.lineTo(x, y) : p2.moveTo(x, y))); p2.closePath(); }
+
+  function paint(cv, side) {
+    const d = window.devicePixelRatio || 1, r = cv.getBoundingClientRect();
+    if (cv.width !== Math.round(r.width * d) || cv.height !== Math.round(r.height * d)) { cv.width = Math.round(r.width * d); cv.height = Math.round(r.height * d); }
+    const ctx = cv.getContext("2d"), v = S.view;
+    ctx.setTransform(1, 0, 0, 1, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height);
+    if (!S.img) return;
+    ctx.setTransform(d * v.s, 0, 0, d * v.s, d * v.x, d * v.y);
+    ctx.imageSmoothingEnabled = v.s < 3;
+    ctx.drawImage(S.img, 0, 0);
+    const px = 1 / v.s, c = S.c;
+    const outline = (p2) => {
+      ctx.fillStyle = `rgba(${BLUE},.22)`; ctx.fill(p2, "evenodd");
+      ctx.lineJoin = "round"; ctx.lineWidth = 3.2 * px; ctx.strokeStyle = "rgba(255,255,255,.75)"; ctx.stroke(p2);
+      ctx.lineWidth = 1.6 * px; ctx.strokeStyle = "#12307F"; ctx.stroke(p2);
+    };
+    const nodes = (paths) => {
+      const rad = Math.max(2.2, Math.min(5, 5 * v.s)) * px;              // smaller when zoomed far out, so they do not hide the line
+      for (const rs of paths) for (const p of rs) for (const n of p.nodes) {
+        ctx.beginPath(); ctx.arc(n.x, n.y, rad, 0, 7); ctx.fillStyle = "#F0A63A"; ctx.fill();
+        ctx.lineWidth = 1.2 * px; ctx.strokeStyle = "#6B3F06"; ctx.stroke();
+      }
+    };
+    if (side === "L") {
+      if ($("showOld").checked) { for (const rs of S.oldPaths) { const p2 = new Path2D(); rs.forEach((p) => trace(p2, p)); outline(p2); } nodes(S.oldPaths); }
+      else { const p2 = new Path2D(); c.delivered_outline.forEach((rs) => rs.forEach((r) => poly(p2, r))); outline(p2); }
+    } else {
+      for (const rs of S.newPaths) { const p2 = new Path2D(); rs.forEach((p) => trace(p2, p)); outline(p2); }
+      nodes(S.newPaths);
+    }
+    if ($("showRef").checked && c.reference) {
+      const p2 = new Path2D(); c.reference.forEach((rs) => rs.forEach((r) => poly(p2, r)));
+      ctx.setLineDash([8 * px, 6 * px]); ctx.lineWidth = 2.2 * px; ctx.strokeStyle = REF; ctx.stroke(p2); ctx.setLineDash([]);
+    }
+  }
+  const paintAll = () => { paint($("cvL"), "L"); paint($("cvR"), "R"); };
+
+  function fitView() {
+    if (!S.img) return;
+    const r = $("cvL").getBoundingClientRect(), s = Math.min(r.width / S.img.width, r.height / S.img.height) * 0.96;
+    S.view = { s, x: (r.width - S.img.width * s) / 2, y: (r.height - S.img.height * s) / 2 };
+    paintAll();
+  }
+  function zoomAt(k, mx, my) {
+    const v = S.view, s = Math.max(0.05, Math.min(40, v.s * k)); k = s / v.s;
+    S.view = { s, x: mx - (mx - v.x) * k, y: my - (my - v.y) * k }; paintAll();
+  }
+  for (const cv of [$("cvL"), $("cvR")]) {
+    cv.addEventListener("wheel", (e) => {
+      e.preventDefault(); const r = cv.getBoundingClientRect();
+      if (e.ctrlKey || e.metaKey || Math.abs(e.deltaY) > 40 && !e.deltaX) zoomAt(Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.0022)), e.clientX - r.left, e.clientY - r.top);
+      else { S.view.x -= e.deltaX; S.view.y -= e.deltaY; paintAll(); }
+    }, { passive: false });
+    let drag = null;
+    cv.addEventListener("pointerdown", (e) => { drag = { x: e.clientX, y: e.clientY, vx: S.view.x, vy: S.view.y }; cv.setPointerCapture(e.pointerId); cv.classList.add("drag"); });
+    cv.addEventListener("pointermove", (e) => { if (!drag) return; S.view.x = drag.vx + e.clientX - drag.x; S.view.y = drag.vy + e.clientY - drag.y; paintAll(); });
+    const up = () => { drag = null; cv.classList.remove("drag"); };
+    cv.addEventListener("pointerup", up); cv.addEventListener("pointercancel", up);
+    cv.addEventListener("dblclick", (e) => { const r = cv.getBoundingClientRect(); zoomAt(2, e.clientX - r.left, e.clientY - r.top); });
+  }
+
+  const pct = (v) => (v > 0 ? "+" : "") + v.toFixed(1) + "%";
+  async function open(i) {
+    if (i < 0 || i >= S.index.length) return;
+    S.i = i; renderList();
+    const row = S.index[i];
+    if (row.error) { $("title").textContent = row.name; $("stats").textContent = "Could not import: " + row.error; S.img = null; paintAll(); return; }
+    const c = await (await fetch(`/compare/${encodeURIComponent(row.name)}/case.json`)).json();
+    const img = new Image(); img.src = `/compare/${encodeURIComponent(row.name)}/image.jpg`; await img.decode();
+    const keep = S.c && S.img && S.img.width === img.width && S.img.height === img.height;
+    S.c = c; S.img = img;
+    S.oldPaths = c.before.regions.map((rs) => fit(rs, c.before.fit_tol));
+    S.newPaths = c.after.regions.map((rs) => fit(rs, c.fit_tol));
+    const before = count(S.oldPaths), after = count(S.newPaths), st = c.stats;
+    $("title").textContent = c.name;
+    $("stats").innerHTML = `Nodes <b>${before} → ${after}</b>` +
+      ` · area ${pct(st.area_change_pct)} · furthest move <b>${st.max_move_px} px</b>` + (st.tile_px ? ` (a tile is ${st.tile_px[0].toFixed(0)} px)` : "") +
+      (st.iou_reference_after != null ? ` · overlap with reference <b>${st.iou_reference_before.toFixed(3)} → ${st.iou_reference_after.toFixed(3)}</b>` : "");
+    $("notes").textContent = [...c.picked, ...c.notes].join(" · ");
+    const g = c.coarse;
+    $("capL").innerHTML = `<b>As delivered</b>${g ? `${g.grid[0]} × ${g.grid[1]} tiles, cut-off ${(+c.threshold).toFixed(3)}` : ""}`;
+    $("capR").innerHTML = `<b>In the editor</b>${S.newPaths.length} regions, ${after} nodes`;
+    const ref = c.reference ? `<span class="sw" style="background:${REF}"></span>Reference` : "";
+    $("keyL").innerHTML = ($("showOld").checked ? `<span class="dot"></span>Nodes before smoothing (${before})` : "Outline traced around the tiles") + " " + ref;
+    $("keyR").innerHTML = `<span class="dot"></span>Nodes (${after}) ` + ref;
+    if (!keep) fitView(); else paintAll();
+  }
+  function renderList() {
+    const groups = [["Real", S.index.filter((r) => !r.synthetic)], ["Synthetic", S.index.filter((r) => r.synthetic)]];
+    $("list").innerHTML = groups.filter(([, rows]) => rows.length).map(([g, rows]) => `<div class="grp">${g}</div>` + rows.map((r) => {
+      const i = S.index.indexOf(r);
+      const s = r.error ? "could not import" : `${r.regions} regions · area ${pct(r.area_change_pct)}` + (r.iou_reference_after != null ? ` · ref ${r.iou_reference_before.toFixed(2)}→${r.iou_reference_after.toFixed(2)}` : "");
+      return `<button data-i="${i}" class="${i === S.i ? "on" : ""}"><span class="n">${r.name.replace(/[<>&]/g, "")}</span><span class="s">${s}</span></button>`;
+    }).join("")).join("");
+    $("list").querySelectorAll("button").forEach((b) => (b.onclick = () => open(+b.dataset.i)));
+  }
+  $("fit").onclick = fitView;
+  $("showRef").onchange = paintAll;
+  $("showOld").onchange = () => open(S.i);
+  window.addEventListener("resize", paintAll);
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown" || e.key === "ArrowRight") { e.preventDefault(); open(S.i + 1); }
+    if (e.key === "ArrowUp" || e.key === "ArrowLeft") { e.preventDefault(); open(S.i - 1); }
+    if (e.key === "0") fitView();
+  });
+  (async () => {
+    try { S.index = await (await fetch("/compare.json")).json(); }
+    catch (e) { document.querySelector(".panes").innerHTML = '<p class="empty">No comparison data yet. Run <code>.venv/bin/python dev/compare.py</code> first.</p>'; return; }
+    S.index.sort((a, b) => a.synthetic - b.synthetic);
+    renderList(); open(0);
+  })();
+})();
+</script>
+</body>
+</html>

@@ -17,12 +17,13 @@ in the tools the lab already uses. The corrected masks can also go straight back
 
 | | |
 |---|---|
-| **Opens** | An image with the model's probability map or mask · a shaded image with its original · an ImageJ `.tif` with outlines · an image with an ImageJ RoiSet or QuPath GeoJSON · a whole folder or `.zip` of these |
+| **Opens** | A model's output folder, as it comes: the editor looks inside the files to find the image and the model's output (raw `.npz`, probability map, mask or ImageJ outlines) and says what it chose · a library: a folder of such folders, or of files named in pairs · a shaded image with its original · an image with an ImageJ RoiSet or QuPath GeoJSON |
+| **Smooths tiled output** | A model that answers once per tile (16 × 16 px, say) gives staircase outlines. The editor rebuilds them from the model's probabilities, so a region has tens of nodes instead of hundreds (see below) |
 | **Edits** | Drag a node or bend a line · draw a new region · extend or trim by redrawing a stretch of outline · split a region by drawing across it · merge, subtract, smooth, fill holes · grow or shrink from the model's own probabilities, or evenly by a set distance · add a band around a region · undo everything |
 | **Labels** | Give each region a class (the list is set per library), mark it unsure, add a note · an Exclude class leaves artefacts out of the measurements |
 | **Measures** | Area, perimeter, longest diameter and circularity of a region · area and share per class · a ruler · in µm once the pixel size is set · one CSV for the whole library |
 | **Guides** | Regions are listed least-confident first, so the expert starts where the model was least sure · probability heatmap · the model's original outline as a dashed line |
-| **Exports** | ImageJ `.tif` with editable regions · ImageJ RoiSet `.zip` · QuPath GeoJSON · mask PNG · shaded PNG, for one image or a whole library |
+| **Exports** | `<image>_corrected_mask.tif` (0 and 255, the image's size; ticked by default) · ImageJ `.tif` with editable regions · ImageJ RoiSet `.zip` · QuPath GeoJSON · mask PNG · shaded PNG, for one image or a whole library |
 | **Teaches** | A first visit starts with a tour in which a pointer works the real editor step by step; the Tutorial button has a short clip for every tool |
 
 ## Try it on your computer
@@ -38,8 +39,27 @@ python -m venv .venv && .venv/bin/pip install -r requirements.txt
 On Windows: `py -m venv .venv`, then `.venv\Scripts\pip install -r requirements.txt` and
 `.venv\Scripts\python serve.py`.
 
-It opens with six practice images and the tour. To use your own, click **Open** and drop in a folder or a `.zip`.
-Files are paired by name: `slide1_image.png` with `slide1_prob.tif` or `slide1_mask.png`.
+It opens with six practice images and the tour. To use your own, click **Open**: **Single image** takes one model
+output folder (or `.zip`, or the files); a library takes a folder with one such folder per image, or files paired
+by name (`slide1_image.png` with `slide1_prob.tif` or `slide1_mask.png`).
+
+## Tiled model output
+
+Some models answer once per tile rather than once per pixel (a vision transformer gives one answer per 16 × 16
+patch). Enlarged to the image, that answer is a staircase, and traced as it is every stair corner becomes a node.
+`coarse.py` recognises such output (from a raw `.npz`, or from the tiles themselves in a mask, probability map or
+ImageJ file), places each tile's value at the tile's centre, interpolates the logits smoothly and cuts at the
+model's own threshold (read from the `.npz` when it has one; otherwise 0.675). Blobs smaller than two tiles are
+dropped, and curves are fitted to within a quarter of a tile.
+
+Measured on 17 Nov 2026 (`dev/compare.py`) on 11 synthetic folders built to match a real pipeline's output format
+(`dev/make_coarse_cases.py`: 128 × 154 tiles over a 2048 × 2467 image): overlap with the reference outline rose in
+every one (0.84–0.94 before, 0.87–0.96 after), and the area shrank by 0.4–2.2%, as rounded corners do.
+`dev/check_coarse.py` checks grid detection, that smoothing does not shift outlines, and how files are chosen.
+
+`python serve.py`, then **http://127.0.0.1:8765/compare** shows each one side by side, zoomable, with the nodes:
+the output as delivered, and the editor's version of it. Its data is kept outside the repository
+(`~/Automations/segmentation-editor-data/compare`), because a real folder is a lab's own image.
 
 ## Using the editor
 
@@ -192,6 +212,9 @@ resized pictures, and needed thresholds tuned to these images.
 |---|---|
 | `highlight2imagej.py`, `imagej2mask.py`, `overlay_detect.py` | The converter, the way back to a mask, shading detection |
 | `serve.py`, `editor_backend.py` | The server: import, libraries, grow/shrink re-cut, export, hosted workspaces |
+| `coarse.py` | Tiled model output: finding the tiles, reading `.npz` files by content, smoothing |
+| `dev/make_coarse_cases.py`, `dev/compare.py`, `viewer/compare.html` | Synthetic tiled output, and the side-by-side comparison page |
+| `dev/check_coarse.py` | Checks for the above |
 | `viewer/editor.html`, `viewer/editor/app.js`, `geom.js` | The editor page, the canvas app, the geometry (no DOM) |
 | `viewer/editor/tour.js`, `tutorial.js`, `tutorial/` | The first-visit tour, the Tutorial panel, its clips |
 | `tutorial/` | The recorder that makes the clips from the real editor (`tutorial/README.md`) |

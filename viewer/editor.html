@@ -247,6 +247,14 @@ details.more[open] summary { margin-bottom: 4px; }
   background: var(--panel-2); cursor: pointer; font-size: var(--fs-small); color: var(--ink-soft); }
 .drop b { font-size: var(--fs-body); color: var(--ink); font-weight: 600; }
 .drop:hover, .drop.over { border-color: var(--accent); background: var(--accent-tint); }
+.picks { margin-top: 12px; background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 10px; padding: 13px 14px; display: grid; gap: 8px; }
+.picks h4 { font-size: var(--fs-body); font-weight: 600; }
+.pk-row { display: grid; grid-template-columns: 104px 1fr; gap: 8px; align-items: center; font-size: var(--fs-small); color: var(--ink-soft); }
+.pk-row select { min-width: 0; font: inherit; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 7px; padding: 5px 6px; }
+.pk-notes { margin: 0; padding-left: 18px; font-size: var(--fs-small); color: var(--ink-soft); line-height: 1.45; }
+.picks .actions { margin-top: 2px; }
+.pv-picked { color: var(--ink-soft); line-height: 1.4; }
+.pv-picked:empty { display: none; }
 .d-del { margin-top: 12px; width: 100%; justify-content: center; }
 .card .btn { margin-top: 11px; }
 .list { display: grid; gap: 6px; }
@@ -645,29 +653,35 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
   <div class="modal-h"><h3>Open</h3><button class="icon-btn" data-close><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></svg></button></div>
   <div class="modal-b">
     <div class="seg" id="openTabs">
-      <button class="on" data-tab="libs">Libraries</button><button data-tab="import">Single file</button>
+      <button class="on" data-tab="libs">Libraries</button><button data-tab="import">Single image</button>
     </div>
     <div data-pane="libs">
       <div class="list" id="libList"></div>
       <p class="note hosted-only">This is a shared demo server. Anything you upload is stored on it for up to two weeks, so please do not upload confidential or patient images.</p>
       <div class="drop" id="libDrop" tabindex="0" role="button">
-        <b>Upload folder</b>
-        <span>Drop a folder or a .zip here, or click to choose a folder · <button class="link" id="libZip" type="button">choose a .zip</button></span>
+        <b>Upload a library</b>
+        <span>A folder holding one folder per image (or files named in pairs, like slide1_image.png and slide1_prob.tif). Drop it or a .zip of it here, or click to choose · <button class="link" id="libZip" type="button">choose a .zip</button></span>
         <input type="file" id="f_lib_dir" webkitdirectory multiple hidden><input type="file" id="f_lib_zip" accept=".zip" hidden>
       </div>
       <div class="err" id="libErr"></div>
     </div>
     <div data-pane="import" hidden>
       <p class="note hosted-only" style="margin:0 0 12px">This is a shared demo server. Anything you upload is stored on it for up to two weeks, so please do not upload confidential or patient images.</p>
+      <div class="drop" id="oneDrop" tabindex="0" role="button" style="margin-top:0">
+        <b>Upload one image</b>
+        <span>Drop the model's output folder, a .zip of it, or the files themselves here, or click to choose a folder · <button class="link" id="oneFiles" type="button">choose files</button>. An ImageJ .tif on its own works too.</span>
+        <input type="file" id="f_one_dir" webkitdirectory multiple hidden><input type="file" id="f_one_files" multiple hidden>
+      </div>
+      <div class="picks" id="onePick" hidden></div>
+      <details class="more">
+        <summary>Choose the files by hand</summary>
       <div class="card">
         <h4>Model output</h4>
         <div class="field"><span>Original image (.png, .jpg, .tif)</span><input type="file" id="f_model_image" accept=".png,.jpg,.jpeg,.tif,.tiff"></div>
-        <div class="field"><span>Probability map (.tif, .npy) or mask (.png, .tif, .npy)</span><input type="file" id="f_model_out" accept=".png,.tif,.tiff,.npy"></div>
-        <div class="field"><span>Cut-off, for probability maps</span><input type="number" id="f_model_thr" min="0.05" max="0.95" step="0.05" value="0.5"></div>
+        <div class="field"><span>Raw output (.npz), probability map (.tif, .npy) or mask (.png, .tif, .npy)</span><input type="file" id="f_model_out" accept=".png,.tif,.tiff,.npy,.npz"></div>
+        <div class="field"><span>Cut-off, for probability maps (a raw .npz output uses its own)</span><input type="number" id="f_model_thr" min="0.05" max="0.95" step="0.025" value="0.675"></div>
         <button class="btn primary" data-import="model">Open model output</button>
       </div>
-      <details class="more">
-        <summary>More options</summary>
       <div class="card">
         <h4>ImageJ file</h4>
         <div class="field"><span>ImageJ .tif saved with its outlines inside</span><input type="file" id="f_tif" accept=".tif,.tiff"></div>
@@ -690,7 +704,7 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
     </div>
   </div>
 </div>
-  <div class="preview" id="preview" hidden><img id="previewImg" alt=""><div class="cap"><span class="q-name" id="previewName"></span><span>Click again or press Enter to open</span></div></div>
+  <div class="preview" id="preview" hidden><img id="previewImg" alt=""><div class="cap"><span class="q-name" id="previewName"></span><span class="pv-picked" id="previewPicked"></span><span>Click again or press Enter to open</span></div></div>
 </div>
 
 <div class="backdrop" id="exportModal"><div class="modal" style="width:520px">

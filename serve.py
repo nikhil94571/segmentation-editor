@@ -23,6 +23,7 @@ DECISIONS = ROOT / "qa" / "decisions.json"
 PORT = int(os.environ.get("PORT", 8765))
 HOST = os.environ.get("HOST") or ("0.0.0.0" if eb.HOSTED else "127.0.0.1")
 MAX_BODY = 300 * 1024 * 1024                                    # largest single upload accepted
+COMPARE_DIR = os.environ.get("COMPARE_DIR") or str(Path.home() / "Automations" / "segmentation-editor-data" / "compare")
 
 
 def load_decisions():
@@ -108,6 +109,8 @@ class Handler(SimpleHTTPRequestHandler):
             self.path = "/viewer/index.html"
         elif path == "/editor":
             self.path = "/viewer/editor.html"
+        elif path in ("/compare", "/compare.json") or path.startswith("/compare/"):
+            return self._compare(path)
         elif path == "/api/cases":
             cases = json.loads((ROOT / "out" / "cases.json").read_text())
             return self._json({"cases": cases, "decisions": load_decisions()})
@@ -160,6 +163,20 @@ class Handler(SimpleHTTPRequestHandler):
             return self._ranged(path)
         return super().do_GET()
 
+    def _compare(self, path):
+        """The import comparison page (local only). Its data is made by dev/compare.py into COMPARE_DIR, which
+        is outside the repository because it can hold a lab's own images."""
+        if eb.HOSTED:
+            return self.send_error(404)
+        if path == "/compare":
+            return self._send(ROOT / "viewer" / "compare.html", "text/html; charset=utf-8")
+        base = Path(COMPARE_DIR).resolve()
+        f = (base / ("index.json" if path == "/compare.json" else path[len("/compare/"):])).resolve()
+        if base not in f.parents or not f.is_file():
+            return self.send_error(404)
+        ctype = {".json": "application/json", ".jpg": "image/jpeg", ".png": "image/png"}.get(f.suffix, "application/octet-stream")
+        return self._send(f, ctype)
+
     def _ranged(self, path):
         """Part of a video file (Safari will not play a video unless byte ranges work)."""
         f = (ROOT / unquote(path).lstrip("/")).resolve()
@@ -197,6 +214,8 @@ class Handler(SimpleHTTPRequestHandler):
             return self.send_error(404)
         if url.path == "/api/editor/library/put":       # one file of a library being imported (raw body)
             return self._editor(eb.library_put, q.get("id", [""])[0], q.get("path", [""])[0], self._body())
+        if url.path == "/api/editor/bundle/put":        # one file of a single image's folder (raw body)
+            return self._editor(eb.bundle_put, q.get("id", [""])[0], q.get("path", [""])[0], self._body())
         if url.path == "/api/editor/upload":            # raw file body -> a token for the import call
             name = re.sub(r"[^a-zA-Z0-9._-]+", "_", q.get("name", ["file"])[0])[-80:]
             eb.uploads().mkdir(parents=True, exist_ok=True)
@@ -210,8 +229,17 @@ class Handler(SimpleHTTPRequestHandler):
                 f = eb.uploads() / Path(str(token)).name
                 if f.exists():
                     files[role] = f
+            t = body.get("threshold")
             return self._editor(lambda: eb.add_single(eb.import_session(
-                body.get("route"), files, body.get("name"), float(body.get("threshold", 0.5)))))
+                body.get("route"), files, body.get("name"), float(t) if t not in (None, "") else None)))
+        if url.path == "/api/editor/bundle/begin":
+            return self._editor(eb.bundle_begin)
+        if url.path == "/api/editor/bundle/scan":
+            return self._editor(eb.bundle_scan, body.get("id", ""), body.get("outlines"), body.get("image"))
+        if url.path == "/api/editor/bundle/open":
+            t = body.get("threshold")
+            return self._editor(eb.bundle_open, body.get("id", ""), body.get("outlines"), body.get("image"),
+                                float(t) if t not in (None, "") else None)
         if url.path == "/api/editor/library/begin":
             return self._editor(eb.library_begin, body.get("name", ""))
         if url.path == "/api/editor/library/finish":

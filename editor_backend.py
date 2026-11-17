@@ -32,6 +32,7 @@ from skimage.measure import approximate_polygon, label, regionprops
 from skimage.morphology import remove_small_holes, remove_small_objects
 from skimage.segmentation import watershed
 
+import coarse
 import highlight2imagej as h2
 from imagej2mask import _fill, read_regions, to_mask
 
@@ -67,6 +68,8 @@ def libs():
 
 PSEUDO_PX = 80          # stand-in score: 0.5 at the edge, +-0.5 over +-40 px
 RING_TOL = 0.75         # px; removes the pixel staircase before the page fits curves
+DEFAULT_THRESHOLD = 0.675   # cut-off for probability maps when the file does not carry its own
+FIT_TOL = 3             # px; how closely the page's curves follow an outline (tiled output: a quarter tile)
 _cache = {}
 
 
@@ -136,7 +139,7 @@ def _labels_by_area(mask):
     return out
 
 
-def _write_session(sid, name, route, base, score, labels, has_prob, threshold, regions=None):
+def _write_session(sid, name, route, base, score, labels, has_prob, threshold, regions=None, extra=None):
     d = _sdir(sid)
     shutil.rmtree(d, ignore_errors=True)
     d.mkdir(parents=True)
@@ -145,6 +148,7 @@ def _write_session(sid, name, route, base, score, labels, has_prob, threshold, r
     np.save(d / "labels.npy", labels.astype(np.int32))
     meta = {"id": sid, "name": name, "route": route, "has_prob": has_prob, "threshold": threshold,
             "width": int(base.shape[1]), "height": int(base.shape[0]), "created": time.strftime("%Y-%m-%d %H:%M"),
+            "fit_tol": FIT_TOL, **(extra or {}),
             "regions": regions if regions is not None else _regions_from_labels(labels, score, has_prob)}
     (d / "meta.json").write_text(json.dumps(meta))
     _cache.pop(str(d), None)
@@ -153,33 +157,85 @@ def _write_session(sid, name, route, base, score, labels, has_prob, threshold, r
 
 # ---------- import ----------
 
-def import_session(route, files, name=None, threshold=0.5, sid=None):
-    """files: dict of role -> path. Roles: image, model, overlay, imagej, rois. Returns the session meta."""
+def _fit_image(base, shape):
+    """The image at the model output's size. A larger original with the same proportions (a full-resolution
+    scan of what the model saw scaled down) is scaled down to match; anything else is an error."""
+    if base.shape[:2] == tuple(shape):
+        return base, None
+    (h, w), (H, W) = base.shape[:2], shape
+    if abs(h / w - H / W) > 0.01 * H / W:
+        raise ValueError(f"The model output is {W}x{H} but the image is {w}x{h}, a different shape.")
+    small = np.asarray(Image.fromarray(base).resize((W, H), Image.LANCZOS))
+    return small, f"The image ({w}x{h}) was scaled to the model output's size ({W}x{H})."
+
+
+def _coarse(grid_values, shape, kind, binary, threshold, name, route, base, sid, note=None, source=None, grid_from=""):
+    """Tiled model output -> a session with smooth outlines (see coarse.py)."""
+    if binary:
+        score, threshold = coarse.smooth_mask(grid_values, shape, kind), 0.5
+    else:
+        score = coarse.smooth_probability(grid_values, shape, kind)
+    rows, cols = grid_values.shape
+    cell = (shape[0] / rows, shape[1] / cols)
+    tile = cell[0] * cell[1]
+    mask = h2.clean(score > threshold, int(2 * tile), 200)        # smaller than two tiles is below what the model resolves
+    raw = coarse.expand(grid_values > (0.5 if binary else threshold), shape, kind)
+    extra = {"fit_tol": round(max(FIT_TOL, min(cell) / 4), 2),
+             "coarse": {"grid": [rows, cols], "tile_px": [round(cell[0], 3), round(cell[1], 3)], "from": grid_from,
+                        "regions_as_tiles": int(label(raw, connectivity=2).max()),
+                        "regions_smoothed": int(label(mask, connectivity=2).max())},
+             "source_name": source, "notes": [n for n in [note] if n]}
+    return _write_session(sid, name, route, base, score, _labels_by_area(mask), not binary, threshold, extra=extra)
+
+
+def import_session(route, files, name=None, threshold=None, sid=None):
+    """files: dict of role -> path. Roles: image, model, overlay, imagej, rois. Returns the session meta.
+    route "grid": model is a numpy .npz of the model's raw, tiled output (see coarse.py)."""
     f = {k: Path(v) for k, v in files.items() if v}
     if not f:
         raise ValueError("Choose a file first.")
+    threshold = DEFAULT_THRESHOLD if threshold is None else float(threshold)
     name = name or next(iter(f.values())).stem
     if route == "screenshot" and "overlay" in f and _role(f["overlay"]) == "imagej":
         route, f = "imagej", {"imagej": f["overlay"]}       # an ImageJ .tif that carries its own outlines
+    if route == "model" and f.get("model") and f["model"].suffix.lower() == ".npz":
+        route = "grid"
     sid = sid or f"{_slug(name)}-{time.strftime('%H%M%S')}"
+
+    if route == "grid":
+        if "image" not in f or "model" not in f:
+            raise ValueError("The model's raw output (.npz) needs the image it was made from.")
+        z = coarse.read_npz(f["model"])
+        if z is None:
+            raise ValueError(f"{f['model'].name} holds no probabilities, scores or mask the editor can use.")
+        base = _rgb(f["image"])
+        shape = z["shape"] or base.shape[:2]
+        base, note = _fit_image(base, shape)
+        t = z["threshold"] if z["threshold"] is not None else threshold
+        return _coarse(z["prob"], tuple(shape), "stretch", z["binary"], t, name, "model", base, sid, note,
+                       z["source"], f"{f['model'].name} ({z['from']})")
 
     if route == "model":
         if "image" not in f or "model" not in f:
             raise ValueError("Model output needs the original image and a probability map or mask.")
         base = _rgb(f["image"])
         raw = h2.load_array(f["model"])
-        if raw.shape != base.shape[:2]:
-            raise ValueError(f"Model output is {raw.shape[1]}x{raw.shape[0]} but the image is "
-                             f"{base.shape[1]}x{base.shape[0]}.")
+        base, note = _fit_image(base, raw.shape)
         two_valued = len(np.unique(raw)) <= 2
         is_prob = not two_valued and (raw.dtype.kind == "f" or not _looks_like_labels(raw))
+        g = coarse.detect_grid(raw if is_prob else raw > 0)
+        if g:                                                    # tiled output enlarged as it was: smooth it
+            vals = coarse.sample(h2.load_prob(f["model"]) if is_prob else raw > 0, g)
+            return _coarse(vals, raw.shape, g.kind, not is_prob, threshold, name, "model", base, sid, note,
+                           grid_from=f"{f['model'].name} (tiles found in the {'map' if is_prob else 'mask'})")
         if is_prob:
             score = h2.load_prob(f["model"])
             mask = h2.clean(score >= threshold, 200, 200)
         else:
             mask = h2.clean(raw > 0, 200, 200)
             score, threshold = _pseudo_score(mask), 0.5
-        return _write_session(sid, name, "model", base, score, _labels_by_area(mask), bool(is_prob), threshold)
+        return _write_session(sid, name, "model", base, score, _labels_by_area(mask), bool(is_prob), threshold,
+                              extra={"notes": [note] if note else []})
 
     if route == "screenshot":
         if "overlay" not in f:
@@ -219,6 +275,10 @@ def import_session(route, files, name=None, threshold=0.5, sid=None):
             labels[m & (labels == 0)] = i
             regions.append({"label": i, "name": rname or f"region-{i:02d}", "area": int(m.sum()), "mean_prob": None,
                             "rings": [np.asarray(r, float).round(2).tolist() for r in [outer] + holes]})
+        g = coarse.detect_grid(labels > 0, min_agree=0.999)       # outlines traced around tiles: smooth them
+        if g:
+            return _coarse(coarse.sample(labels > 0, g), shape, g.kind, True, 0.5, name, "imagej", base, sid,
+                           grid_from=f"{(f.get('rois') or src).name} (tiles found in its outlines)")
         return _write_session(sid, name, "imagej", base, _pseudo_score(labels > 0), labels, False, 0.5, regions)
 
     raise ValueError(f"unknown route {route}")
@@ -409,7 +469,7 @@ def reveal(path):
     return {"ok": True}
 
 
-FORMATS = ("mask_png", "overlay_png", "imagej_tif", "roiset_zip", "qupath_geojson")
+FORMATS = ("corrected_mask_tif", "mask_png", "overlay_png", "imagej_tif", "roiset_zip", "qupath_geojson")
 _progress = {}                                   # job id -> {"done": n, "total": n}; polled by the page
 
 
@@ -456,6 +516,12 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
             rois += h2.imagej_rois(*geoms[-1], split=split)        # holes are true holes unless asked otherwise
 
     files = {}
+    if "corrected_mask_tif" in want:
+        # <image>_corrected_mask.tif: the image's size, one 8-bit channel, 0 = background, 255 = inside a region.
+        # <image> is the name of the image the model was run on when the model's file says so.
+        src = _slug(Path(meta.get("source_name") or "").stem) or stem
+        tifffile.imwrite(out / f"{src}_corrected_mask.tif", (mask * 255).astype(np.uint8), photometric="minisblack")
+        files["corrected_mask_tif"] = f"{src}_corrected_mask.tif"
     if "mask_png" in want:
         Image.fromarray((mask * 255).astype(np.uint8)).save(out / f"{stem}_mask.png")
         files["mask_png"] = f"{stem}_mask.png"
@@ -581,8 +647,205 @@ def _role(path):
     return "image"
 
 
-def _build_cases(root, files):
-    """Group files into cases and pick each case's route. files: paths under root."""
+# ---------- one image's folder: which file is what, by content ----------
+# A model's output folder can hold the image several times over (the original, an ImageJ copy with outlines,
+# shaded pictures, a heatmap), the model's answer in several forms (raw .npz, probability map, mask, outlines),
+# and even an expert's reference outlines. Names vary between pipelines, so files are judged by what is in them;
+# names only break ties.
+
+_DERIVED = re.compile(r"(overlay|shaded|highlight|heat|gt|truth|expert|reference|prob|pred|mask|label|seg)", re.I)
+_PICTURE_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
+
+
+def _tinted(rgb):
+    """Share of strongly green-to-blue pixels: near 0 for H&E and similar stains, high for heatmaps and for
+    pictures shaded cyan or blue."""
+    small = np.asarray(Image.fromarray(rgb).convert("HSV").resize((96, 96)), float)
+    hue, sat = small[..., 0] * 360 / 255, small[..., 1] / 255
+    return float(((hue > 70) & (hue < 215) & (sat > 0.25)).mean())
+
+
+def _blockiness(regs):
+    """Share of outline length running exactly along x or y: 1.0 for outlines traced around pixels or tiles
+    (a model's output), much lower for outlines drawn by hand."""
+    along = total = 0.0
+    for _, outer, holes in regs:
+        for r in [outer] + list(holes):
+            r = np.asarray(r, float)
+            d = np.abs(np.diff(np.vstack([r, r[:1]]), axis=0))
+            seg = np.hypot(d[:, 0], d[:, 1])
+            along += seg[(d[:, 0] < 1e-6) | (d[:, 1] < 1e-6)].sum()
+            total += seg.sum()
+    return along / total if total else 0.0
+
+
+def _probe(path):
+    """What one file holds -> dict, or None if it is nothing the editor uses."""
+    ext = path.suffix.lower()
+    info = {"path": path, "name": path.name}
+    try:
+        if ext == ".npz":
+            z = coarse.read_npz(path)
+            if not z:
+                return None
+            return {**info, "kind": "grid", "shape": tuple(z["shape"]) if z["shape"] else None,
+                    "grid": z["prob"].shape, "binary": z["binary"], "threshold": z["threshold"]}
+        if ext == ".npy":
+            a = np.load(path, mmap_mode="r")
+            if a.ndim != 2:
+                return None
+            return {**info, "kind": "map", "shape": a.shape, "binary": len(np.unique(a[::7, ::7])) <= 2}
+        if ext in (".zip", ".roi", ".geojson"):
+            return {**info, "kind": "rois"}
+        if ext in (".tif", ".tiff"):
+            with tifffile.TiffFile(path) as t:
+                md = t.imagej_metadata or {}
+                shape = t.series[0].shape
+            rgb = len(shape) == 3 and shape[-1] in (3, 4)
+            has_rois = bool(md.get("Overlays") or md.get("ROI"))
+            if not rgb:
+                a = h2.load_array(path)
+                return {**info, "kind": "map", "shape": a.shape[:2], "binary": len(np.unique(a)) <= 2}
+            return {**info, "kind": "picture", "shape": tuple(shape[:2]), "rois": has_rois}
+        if ext in _PICTURE_EXT:
+            with Image.open(path) as im:
+                size, mode = im.size, im.mode
+                rgb = mode not in ("1", "L", "I", "I;16", "F") and len(im.convert("RGB").resize((48, 48), Image.NEAREST).getcolors(2304) or range(9)) > 2
+            if not rgb:
+                return {**info, "kind": "map", "shape": (size[1], size[0]), "binary": None}
+            return {**info, "kind": "picture", "shape": (size[1], size[0]), "rois": False}
+    except Exception:
+        return None
+    return None
+
+
+def scan_bundle(root, paths):
+    """One image's files -> {"route", "files", "picked", "notes", "reference", "options"}; raises if nothing usable.
+    Outlines, best first: the model's raw output (.npz) > a probability map > a mask > ImageJ outlines that look
+    like a model's (traced around pixels or tiles) > an outlines file > a shaded picture."""
+    root = Path(root)
+    items = [i for i in (_probe(Path(p)) for p in sorted(paths)
+                         if not any(part.startswith((".", "__MACOSX")) for part in Path(p).relative_to(root).parts)) if i]
+    rel = lambda i: str(i["path"].relative_to(root))
+    pictures = [i for i in items if i["kind"] == "picture"]
+    for p in pictures:
+        if p["rois"]:
+            try:
+                p["regs"] = read_regions(p["path"])
+                p["blocky"] = _blockiness(p["regs"])
+            except Exception:
+                p["rois"] = False
+    for m in (i for i in items if i["kind"] == "map" and i["binary"] is None):
+        m["binary"] = len(np.unique(h2.load_array(m["path"]))) <= 2
+    grids = [i for i in items if i["kind"] == "grid"]
+    maps = sorted((i for i in items if i["kind"] == "map"), key=lambda i: (i["binary"], bool(_DERIVED.search(i["name"])) is False))
+    ij = sorted((p for p in pictures if p["rois"]), key=lambda p: -p["blocky"])
+    rois = [i for i in items if i["kind"] == "rois"]
+
+    def outline_options():
+        out = [(g, "the model's raw output" + (" (yes/no tiles)" if g["binary"] else " (probabilities)")) for g in grids]
+        out += [(m, "a mask" if m["binary"] else "a probability map") for m in maps]
+        out += [(p, "ImageJ outlines" + (" (traced, like a model's)" if p["blocky"] > 0.95 else " (drawn by hand: possibly a reference)")) for p in ij]
+        out += [(r, "an outlines file") for r in rois]
+        return out
+
+    options = outline_options()
+    if not options and not pictures:
+        raise ValueError("No image or model output found in that folder.")
+    if not options:                                               # only pictures: a shaded picture (+ its original)
+        shaded = sorted(pictures, key=lambda p: -_tinted(_rgb(p["path"])))
+        files = {"overlay": rel(shaded[0])}
+        if len(shaded) > 1 and shaded[1]["shape"] == shaded[0]["shape"]:
+            files["image"] = rel(shaded[-1])
+        return {"route": "screenshot", "files": files, "picked": [f"Shaded picture: {shaded[0]['name']}"],
+                "notes": [], "reference": None, "options": {"image": [rel(p) for p in pictures], "outlines": []}}
+    src, why = options[0]
+    return _bundle_choice(root, items, src, why, None, options)
+
+
+def _bundle_choice(root, items, src, why, image=None, options=None):
+    """Given the outline source (and optionally the image), the route, files and the notes to show."""
+    rel = lambda i: str(i["path"].relative_to(root))
+    pictures = [i for i in items if i["kind"] == "picture"]
+    target = src.get("shape")
+    if target is None:                                            # an .npz without the image size, or an outlines file
+        target = max((p["shape"] for p in pictures), key=lambda s: s[0] * s[1], default=None)
+    notes = []
+
+    def image_score(p):
+        s = 0.0
+        if p["shape"] == target:
+            s += 10
+        elif target and abs(p["shape"][0] / p["shape"][1] - target[0] / target[1]) < 0.01 * target[0] / target[1]:
+            s += 4                                                # same proportions: scaled to match
+        else:
+            return -99
+        if p.get("rois") and p.get("blocky", 0) > 0.95:
+            s += 2                                                # an ImageJ copy of the model's output: the clean image
+        if p["path"].suffix.lower() in (".tif", ".tiff"):
+            s += 1
+        if _DERIVED.search(p["path"].stem):
+            s -= 3
+        s -= 6 * _tinted(_rgb(p["path"]))                         # heatmaps and shaded pictures
+        return s
+
+    if src["kind"] == "picture" and image is None:
+        image = src                                               # an ImageJ file is its own image
+    if image is None:
+        ranked = sorted(((image_score(p), p) for p in pictures), key=lambda t: -t[0])
+        ranked = [t for t in ranked if t[0] > -99]
+        if not ranked:
+            raise ValueError(f"No image the size of the model output ({target[1]}x{target[0]}) was found."
+                             if target else "No image found to go with the model output.")
+        image = ranked[0][1]
+    if src["kind"] == "grid":
+        route, files = "grid", {"image": rel(image), "model": rel(src)}
+        if src.get("threshold") is not None:
+            notes.append(f"Cut-off {src['threshold']:g}, from the model's file.")
+    elif src["kind"] == "map":
+        route, files = "model", {"image": rel(image), "model": rel(src)}
+    elif src["kind"] == "picture":
+        route, files = "imagej", {"imagej": rel(src)} if image is src else {"imagej": rel(image), "rois": rel(src)}
+    else:
+        route, files = "imagej", {"imagej": rel(image), "rois": rel(src)}
+    if image["shape"] != target and target:
+        notes.append(f"{image['name']} is {image['shape'][1]}x{image['shape'][0]}; it is scaled to the model "
+                     f"output's {target[1]}x{target[0]}.")
+    reference = next((p for p in pictures if p.get("rois") and p is not src and p.get("blocky", 1) <= 0.95), None)
+    if reference:
+        notes.append(f"{reference['name']} also has outlines, drawn by hand: kept as a reference, not used "
+                     "as the model's output.")
+    picked = [f"Outlines from {src['name']}: {why}", f"Image: {image['name']}"]
+    if options is None:
+        options = []
+    return {"route": route, "files": files, "picked": picked, "notes": notes,
+            "reference": rel(reference) if reference else None,
+            "options": {"image": [rel(p) for p in pictures],
+                        "outlines": [{"file": rel(o), "what": w} for o, w in options]}}
+
+
+def bundle_with(root, paths, outlines=None, image=None):
+    """scan_bundle, with the person's own choice of outline file and/or image."""
+    if not outlines and not image:
+        return scan_bundle(root, paths)
+    auto = scan_bundle(root, paths)
+    root = Path(root)
+    items = [i for i in (_probe(Path(p)) for p in sorted(paths)) if i]
+    by = {str(i["path"].relative_to(root)): i for i in items}
+    for p in by.values():
+        if p["kind"] == "picture" and p["rois"] and "blocky" not in p:
+            p["blocky"] = _blockiness(read_regions(p["path"]))
+    opts = {o["file"]: o["what"] for o in auto["options"]["outlines"]}
+    src_rel = outlines or next(iter(auto["files"].get(k) for k in ("model", "rois", "imagej") if auto["files"].get(k)))
+    if src_rel not in by:
+        raise ValueError("That file is not in the folder.")
+    out = _bundle_choice(root, items, by[src_rel], opts.get(src_rel, "your choice"), by.get(image) if image else None)
+    out["options"] = auto["options"]
+    return out
+
+
+def _pair_by_name(root, files):
+    """Files paired by name: slide1_image.png with slide1_prob.tif. -> cases, skipped"""
     groups = {}
     for f in sorted(files):
         rel = f.relative_to(root)
@@ -615,6 +878,44 @@ def _build_cases(root, files):
     return cases, skipped
 
 
+def _build_cases(root, files):
+    """A library: every folder is looked at on its own. A folder holding several images paired by name
+    (slide1_image.png + slide1_prob.tif, slide2_...) gives one image per pair; any other folder is one image's
+    folder, and scan_bundle works out which file is what. So a folder of image folders, a flat folder of
+    named pairs, or a mix of both all work."""
+    root = Path(root)
+    by_dir = {}
+    for f in sorted(files):
+        rel = f.relative_to(root)
+        if any(part.startswith((".", "__MACOSX")) for part in rel.parts):
+            continue
+        by_dir.setdefault(rel.parent, []).append(f)
+    cases, skipped = [], []
+    for d, fs in sorted(by_dir.items()):
+        paired, skip = _pair_by_name(root, fs)
+        complete = [c for c in paired if c["route"] != "screenshot" or "image" in c["files"]]
+        stems = [c["name"].lower() for c in paired]
+        nested = any(b != a and b.startswith(a) and b[len(a)] in "_-. " for a in stems for b in stems)
+        # names that extend one another (S01.tif, S01_predicted_mask.tif) are one image's files, not several images
+        if not nested and (len(complete) >= 2 or (len(complete) == 1 and len(fs) == len(complete[0]["files"]))):
+            cases += paired
+            skipped += skip
+            continue
+        try:
+            b = scan_bundle(root, fs)
+        except ValueError as e:
+            skipped.append(f"{d if str(d) != '.' else 'the top folder'} ({e})")
+            continue
+        name = d.name if str(d) != "." else Path(b["files"].get("image") or next(iter(b["files"].values()))).stem
+        cases.append({"name": name, "route": b["route"], "files": b["files"], "sid": None,
+                      "picked": b["picked"] + b["notes"], **({"reference": b["reference"]} if b["reference"] else {})})
+    names = [c["name"] for c in cases]                            # two folders of the same name in different places
+    for i, c in enumerate(cases):
+        if names.count(c["name"]) > 1:
+            c["name"] = f"{c['name']}-{i + 1}"
+    return cases, skipped
+
+
 def _safe_rel(path):
     parts = [re.sub(r"[^a-zA-Z0-9._ ()-]+", "_", p) for p in str(path).replace("\\", "/").split("/")]
     parts = [p for p in parts if p and p not in (".", "..")]
@@ -638,21 +939,104 @@ def library_put(lid, rel, data):
     return {"ok": True}
 
 
+def _unzip_into(root, z):
+    import zipfile
+    with zipfile.ZipFile(z) as zf:
+        for info in zf.infolist():
+            if info.is_dir() or "__MACOSX" in info.filename or Path(info.filename).name.startswith("."):
+                continue
+            dest = root / _safe_rel(info.filename)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            dest.write_bytes(zf.read(info))
+    z.unlink()
+
+
+def _strip_single_top(root):
+    """A .zip of one folder unpacks to root/<folder>/...: work from inside that folder."""
+    kids = [p for p in root.iterdir() if not p.name.startswith((".", "__MACOSX"))]
+    return kids[0] if len(kids) == 1 and kids[0].is_dir() else root
+
+
+# ---------- one image from a folder (the "Single image" tab) ----------
+
+def _bundle_dir(bid):
+    if not re.fullmatch(r"b[0-9a-f]{12}", bid or ""):
+        raise ValueError("bad upload id")
+    return uploads() / "bundles" / bid
+
+
+def bundle_begin():
+    import uuid
+    bid = "b" + uuid.uuid4().hex[:12]
+    _bundle_dir(bid).mkdir(parents=True)
+    return {"id": bid}
+
+
+def bundle_put(bid, rel, data):
+    dest = _bundle_dir(bid) / _safe_rel(rel)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    dest.write_bytes(data)
+    return {"ok": True}
+
+
+def _bundle_files(bid):
+    d = _bundle_dir(bid)
+    if not d.exists():
+        raise ValueError("That upload has expired. Add the files again.")
+    for z in list(d.rglob("*.zip")):
+        if zipfile_has_images(z):                                # a RoiSet .zip (only .roi files) stays as it is
+            _unzip_into(z.parent, z)
+    root = _strip_single_top(d)
+    return root, [p for p in root.rglob("*") if p.is_file()]
+
+
+def zipfile_has_images(z):
+    import zipfile
+    try:
+        with zipfile.ZipFile(z) as zf:
+            return any(Path(n).suffix.lower() in _PICTURE_EXT + (".npz", ".npy") for n in zf.namelist())
+    except Exception:
+        return False
+
+
+def bundle_scan(bid, outlines=None, image=None):
+    root, files = _bundle_files(bid)
+    out = bundle_with(root, files, outlines, image)
+    return {**out, "id": bid, "name": _bundle_name(root, out)}
+
+
+def _bundle_name(root, b):
+    """The folder's own name if a folder was given, else the image's."""
+    if not re.fullmatch(r"b[0-9a-f]{12}", root.name):
+        return root.name
+    if b["route"] == "grid":                                     # the model's file names the image it was run on
+        z = coarse.read_npz(root / b["files"]["model"])
+        if z and z["source"]:
+            return Path(z["source"]).stem
+    return Path(b["files"].get("image") or b["files"].get("imagej") or b["files"].get("overlay") or "image").stem
+
+
+def bundle_open(bid, outlines=None, image=None, threshold=None):
+    root, files = _bundle_files(bid)
+    b = bundle_with(root, files, outlines, image)
+    name = _bundle_name(root, b)
+    meta = import_session(b["route"], {k: root / v for k, v in b["files"].items()}, name=name, threshold=threshold)
+    if b["notes"] or b["picked"]:
+        d = _sdir(meta["id"])
+        meta["picked"] = b["picked"]
+        meta["notes"] = (meta.get("notes") or []) + b["notes"]
+        (d / "meta.json").write_text(json.dumps(meta))
+    shutil.rmtree(_bundle_dir(bid), ignore_errors=True)
+    return add_single(meta)
+
+
 def library_finish(lid):
     """Unpack an uploaded .zip if there is one, then recognise the files and build the case list."""
-    import zipfile
     lib = _read_lib(lid)
     root = _lib_root(lib)
     z = root / "__library__.zip"
     if z.exists():
-        with zipfile.ZipFile(z) as zf:
-            for info in zf.infolist():
-                if info.is_dir() or "__MACOSX" in info.filename or Path(info.filename).name.startswith("."):
-                    continue
-                dest = root / _safe_rel(info.filename)
-                dest.parent.mkdir(parents=True, exist_ok=True)
-                dest.write_bytes(zf.read(info))
-        z.unlink()
+        _unzip_into(root, z)
     lib["cases"], skipped = _build_cases(root, [p for p in root.rglob("*") if p.is_file()])
     if not lib["cases"]:
         shutil.rmtree(_lib_path(lid), ignore_errors=True)
@@ -678,12 +1062,12 @@ def _seed_practice():
     if (ROOT / "data" / "practice").is_dir():
         for i, src in enumerate(PRACTICE, 1):
             if (ROOT / "data" / "practice" / f"{src}_prob.png").exists():
-                cases.append({"name": f"practice-{i:02d}", "route": "model", "sid": None,
+                cases.append({"name": f"practice-{i:02d}", "route": "model", "sid": None, "threshold": 0.5,
                               "files": {"image": f"tissue_2k/{src}.png", "model": f"practice/{src}_prob.png"}})
     else:
         for c in sorted((ROOT / "data" / "cases").glob("*")):
             if (c / "prob.tif").exists():
-                cases.append({"name": c.name, "route": "model",
+                cases.append({"name": c.name, "route": "model", "threshold": 0.5,
                               "files": {"image": f"cases/{c.name}/tissue.png", "model": f"cases/{c.name}/prob.tif"}, "sid": None})
     if cases:
         _write_lib({"id": "practice", "name": "Practice images", "created": time.strftime("%Y-%m-%d %H:%M"),
@@ -708,7 +1092,8 @@ def list_libraries():
 def get_library(lid):
     lib = _read_lib(lid)
     return {"id": lib["id"], "name": lib["name"], "classes": _classes(lib), "pixel_um": lib.get("pixel_um"),
-            "cases": [{"name": c["name"], "route": c["route"], "edited": _edited(c), "done": bool(c.get("done"))}
+            "cases": [{"name": c["name"], "route": c["route"], "edited": _edited(c), "done": bool(c.get("done")),
+                       **({"picked": c["picked"]} if c.get("picked") else {})}
                       for c in lib["cases"]]}
 
 
@@ -873,7 +1258,8 @@ def open_library_case(lid, index):
         return {"id": c["sid"]}
     root = _lib_root(lib)
     sid = f"{_slug(lid)[:30]}-{index:04d}"
-    import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid)
+    t = c.get("threshold", 0.5 if lid == "practice" else None)   # the practice maps were made around 0.5
+    import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid, threshold=t)
     c["sid"] = sid
     _write_lib(lib)
     return {"id": sid}
@@ -922,6 +1308,8 @@ def case_preview(lid, index, size=460):
     if not 0 <= index < len(lib["cases"]):
         raise ValueError("No such image in this library.")
     c, root = lib["cases"][index], _lib_root(lib)
+    if c["route"] == "grid" and not (c.get("sid") and (_sdir(c["sid"]) / "meta.json").exists()):
+        c = dict(c, sid=open_library_case(lid, index)["id"])    # raw tiled output: preview the smoothed outlines
     sd = _sdir(c["sid"]) if c.get("sid") else None
     regions, mask = None, None
     if sd and (sd / "meta.json").exists():
@@ -978,7 +1366,7 @@ def export_library(lid, dest=None, formats=None, job=None):
     lib = _read_lib(lid)
     out = (_dest(dest) if dest or HOSTED else ROOT / "exports") / f"{_slug(lib['name'])}-{time.strftime('%Y%m%d-%H%M%S')}"
     folders = {"mask_png": "masks", "overlay_png": "shaded", "imagej_tif": "imagej", "roiset_zip": "roisets",
-               "qupath_geojson": "qupath"}
+               "qupath_geojson": "qupath", "corrected_mask_tif": "corrected_masks"}
     want = [f for f in FORMATS if f in set(formats or FORMATS)]
     opts = [f for f in (formats or ()) if f == "holes_split"]
     if not want:
