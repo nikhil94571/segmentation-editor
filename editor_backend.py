@@ -476,8 +476,34 @@ FORMATS = ("corrected_mask_tif", "corrected_mask_full_tif", "mask_png", "overlay
 _progress = {}                                   # job id -> {"done": n, "total": n}; polled by the page
 
 
+_cancelled = set()                               # job ids the page asked to stop
+
+
+class Cancelled(ValueError):
+    pass
+
+
 def progress(job):
     return _progress.get(job, {"done": 0, "total": 0})
+
+
+def cancel(job):
+    """Stop an export: it checks between steps, removes what it wrote so far, and returns "Export cancelled."."""
+    if job:
+        _cancelled.add(job)
+    return {"ok": True}
+
+
+def _stop_if_cancelled(job):
+    if job and job in _cancelled:
+        _cancelled.discard(job); _progress.pop(job, None)
+        raise Cancelled("Export cancelled.")
+
+
+def bundle_discard(bid):
+    """A single-image upload the visitor cancelled: its files go at once."""
+    shutil.rmtree(_bundle_dir(bid), ignore_errors=True)
+    return {"ok": True}
 
 
 def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=False, tick=None):
@@ -491,7 +517,17 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
         if tick:
             tick(f)
         elif job:
+            _stop_if_cancelled(job)
             _progress[job] = {"done": round(f, 3), "total": 1}
+    try:
+        return _export(sid, regions, stem, dest, want, split, deliver, prog)
+    except Cancelled:
+        if not tick:                                # a library export tidies up its own folder
+            shutil.rmtree(_sdir(sid) / "export", ignore_errors=True)
+        raise
+
+
+def _export(sid, regions, stem, dest, want, split, deliver, prog):
     prog(0)
     d = _sdir(sid)
     meta = json.loads((d / "meta.json").read_text())
@@ -1637,7 +1673,21 @@ def export_library(lid, dest=None, formats=None, job=None):
     n_cases = len(lib["cases"])
     def at(x):                                         # x images done (fractions too), for the page's progress bar
         if job:
+            _stop_if_cancelled(job)
             _progress[job] = {"done": round(x, 3), "total": n_cases}
+    try:
+        return _export_cases(lid, lib, out, folders, want, opts, job, at, n_cases)
+    except Cancelled:
+        shutil.rmtree(out, ignore_errors=True)
+        for c in _read_lib(lid)["cases"]:
+            if c.get("sid"):
+                shutil.rmtree(_sdir(c["sid"]) / "export", ignore_errors=True)
+        raise
+
+
+def _export_cases(lid, lib, out, folders, want, opts, job, at, n_cases):
+    import csv
+    rows = []
     for i, c in enumerate(lib["cases"]):
         at(i)
         sid = open_library_case(lid, i)["id"]                   # an image not opened yet is made first
@@ -1669,6 +1719,8 @@ def export_library(lid, dest=None, formats=None, job=None):
             if c.get("sid"):
                 shutil.rmtree(_sdir(c["sid"]) / "export", ignore_errors=True)
     at(n_cases - 0.02)                                          # packing the .zip (hosted)
+    if job:
+        _cancelled.discard(job)
     return {"dir": out.name if HOSTED else str(out), "download": _zip(out) if HOSTED else None, "images": len(rows),
             "done": sum(r["done"] == "yes" for r in rows), "edited": sum(r["edited"] == "yes" for r in rows),
             "min_iou": min((r["imagej_iou"] for r in rows if r["imagej_iou"] is not None), default=None)}

@@ -930,7 +930,13 @@
   async function runExport(scope, lib, dest, formats) {
     const body = $("exportBody"), job = "j" + Date.now() + Math.random().toString(36).slice(2, 7);
     body.innerHTML = `<p class="note" style="margin:0">Exporting ${scope === "library" ? esc(lib.name) : esc(S.meta.name)}…</p>
-      <div class="prog"><i id="exBar"></i></div><div class="prog-t"><span id="exCount"></span><span id="exPct">0%</span></div>`;
+      <div class="prog"><i id="exBar"></i></div><div class="prog-t"><span id="exCount"></span><span id="exPct">0%</span></div>
+      <div class="actions"><button class="btn" id="exStop">Cancel export</button></div>`;
+    let stopping = false;
+    $("exStop").onclick = () => {                                // the server stops at its next step and deletes what it wrote
+      stopping = true; $("exStop").disabled = true; $("exStop").textContent = "Cancelling…";
+      api("/api/editor/cancel", { job }).catch(() => {});
+    };
     /* The bar eases toward each report from the server, then keeps creeping slowly toward the next step while it
        waits, so it never stands still; it only shows 100% when the export is really done. */
     let shown = 0, target = 0, ceiling = 4, total = 1, doneN = 0, finished = false;
@@ -983,6 +989,7 @@
       return j;
     } catch (e) {
       clearInterval(poll); clearInterval(anim);
+      if (stopping) { showExport(scope, lib && lib.id, lib && lib.name); toast("Export cancelled"); return; }
       body.innerHTML = `<p class="err">${esc(e.message)}</p><div class="actions"><button class="btn" id="exBack">Back</button></div>`;
       $("exBack").onclick = () => showExport(scope, lib && lib.id, lib && lib.name);
     }
@@ -1154,9 +1161,14 @@
   /* files: [{path, file}] from a folder, or zip: a File. */
   /* Uploads: a bar for the bytes sent (all files together), then a moving bar while the server reads them.
      The same box then grows smoothly into what was found. */
+  let upCtl = null;                                              // the upload under way: {cancelled, xhr}
+  const CANCELLED = "Upload cancelled.";
+  const checkCancel = () => { if (upCtl && upCtl.cancelled) throw new Error(CANCELLED); };
   function xhrPut(url, file, onProgress) {
     return new Promise((ok, bad) => {
       const x = new XMLHttpRequest();
+      if (upCtl) upCtl.xhr = x;
+      x.onabort = () => bad(new Error(CANCELLED));
       x.open("POST", url);
       x.upload.onprogress = (e) => onProgress(e.loaded);
       x.onload = () => (x.status < 300 ? ok() : bad(new Error((() => { try { return JSON.parse(x.responseText).error; } catch (e) { return ""; } })() || "Upload failed: " + file.name)));
@@ -1168,6 +1180,7 @@
     const total = list.reduce((a, x) => a + x.file.size, 0) || 1;
     let done = 0;
     for (const x of list) {
+      checkCancel();
       await xhrPut(urlFor(x.path) + (x.head ? "&head=" + x.head : ""), x.file, (l) => bar && bar.set((done + l) / total));
       done += x.file.size; if (bar) bar.set(done / total);
     }
@@ -1205,7 +1218,17 @@
       },
     };
   }
-  const barHtml = (key, name) => `<div class="up"><div class="up-top"><b>${esc(name)}</b><span id="${key}Pct">Uploading 0%</span></div><div class="up-bar" id="${key}Bar"><i></i></div></div>`;
+  const barHtml = (key, name) => `<div class="up"><div class="up-top"><b>${esc(name)}</b><span class="up-r"><span id="${key}Pct">Uploading 0%</span><button class="up-x" id="${key}Stop" type="button">Cancel</button></span></div><div class="up-bar" id="${key}Bar"><i></i></div></div>`;
+  /* Cancel stops the file being sent at once (the request is aborted); the page then waits for anything the
+     server is already doing and deletes what was sent. */
+  const startUpload = (key) => {
+    const ctl = upCtl = { cancelled: false, xhr: null };
+    $(key + "Stop").onclick = () => {
+      ctl.cancelled = true; if (ctl.xhr) ctl.xhr.abort();
+      $(key + "Stop").disabled = true; $(key + "Pct").textContent = "Cancelling…";
+    };
+    return ctl;
+  };
   /* One bar for the whole upload, however many steps it takes: each step fills its own stretch of the bar
      (span), waits creep slowly forward (wait), and the bar never goes back. */
   const barOf = (key) => {
@@ -1239,10 +1262,10 @@
     const a = 0.92 * P / (P + E || 1);
     bar.span(0, a); await putAll(url, first, bar);
     bar.wait(a + 0.04 * (1 - a));
-    let j = await scan();
+    let j = await scan(); checkCancel();
     for (let round = 0; round < 2 && j.needs && j.needs.length; round++) {   // the chosen big files, now in full
       bar.span(0, round ? 0.985 : 0.96); await sendInFull(j.needs, files, url, bar);
-      bar.wait(0.995); j = await rescan();
+      bar.wait(0.995); j = await rescan(); checkCancel();
     }
     bar.done();
     return j;
@@ -1264,15 +1287,20 @@
     files = dropFiles(files);
     if (!files.length && !zip) { err.textContent = "Nothing to import in that."; return; }
     libBox.show(barHtml("lib", name || "Library"));
-    const bar = barOf("lib");
+    const bar = barOf("lib"), ctl = startUpload("lib");
+    let id = null;
     try {
-      const { id } = await api("/api/editor/library/begin", { name: name || "Library" });
+      id = (await api("/api/editor/library/begin", { name: name || "Library" })).id; checkCancel();
       const url = (p) => `/api/editor/library/put?id=${encodeURIComponent(id)}&path=${encodeURIComponent(p)}`;
       const j = await sendFiles(bar, zip ? [{ path: "__library__.zip", file: zip }] : firstPass(files), files, url,
         () => api("/api/editor/library/finish", { id }), () => api("/api/editor/library/rescan", { id }));
       libBox.hide();
       await showReview(id, j.skipped, (needs) => sendInFull(needs, files, url, null));
-    } catch (e) { libBox.hide(); err.textContent = e.message; }
+    } catch (e) {
+      libBox.hide();
+      if (ctl.cancelled) { if (id) api("/api/editor/library/delete", { id }).catch(() => {}); return; }
+      err.textContent = e.message;
+    }
   }
   async function showReview(id, skipped, send) {
     const lib = await api("/api/editor/library?id=" + encodeURIComponent(id));
@@ -1361,14 +1389,18 @@
     if (!files.length && !zip) { err.textContent = "Nothing to open in that."; return; }
     const name = zip ? zip.name.replace(/\.zip$/i, "") : files[0].path.includes("/") ? files[0].path.split("/")[0] : files[0].path;
     oneBox.show(barHtml("one", name));
-    const bar = barOf("one");
+    const bar = barOf("one"), ctl = startUpload("one");
     try {
-      oneId = (await api("/api/editor/bundle/begin", {})).id;
+      oneId = (await api("/api/editor/bundle/begin", {})).id; checkCancel();
       const id = oneId, url = (p) => `/api/editor/bundle/put?id=${encodeURIComponent(id)}&path=${encodeURIComponent(p)}`;
       oneSend = (needs, b) => sendInFull(needs, zip ? [] : files, url, b);
       const scan = () => api("/api/editor/bundle/scan", { id });
       showPicks(await sendFiles(bar, zip ? [{ path: zip.name, file: zip }] : firstPass(files), zip ? [] : files, url, scan, scan));
-    } catch (e) { oneBox.hide(); oneId = null; err.textContent = e.message; }
+    } catch (e) {
+      oneBox.hide();
+      if (ctl.cancelled) { if (oneId) api("/api/editor/bundle/discard", { id: oneId }).catch(() => {}); oneId = null; return; }
+      oneId = null; err.textContent = e.message;
+    }
   }
   function showPicks(b) {
     const choice = () => ({ id: oneId, outlines: $("pkOut") ? $("pkOut").value : b.chosen.outlines, image: $("pkImg") ? $("pkImg").value : b.chosen.image });

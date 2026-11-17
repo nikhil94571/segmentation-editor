@@ -87,7 +87,10 @@ class Handler(SimpleHTTPRequestHandler):
         n = int(self.headers.get("Content-Length", 0))
         if n > MAX_BODY:
             raise ValueError("That file is too large for this server.")
-        return self.rfile.read(n)
+        data = self.rfile.read(n)
+        if len(data) < n:                            # the page stopped sending (a cancelled upload): keep nothing
+            raise ValueError("The upload was interrupted.")
+        return data
 
     def _editor(self, fn, *a):
         """Run an editor backend call; user-facing problems come back as {error} with a 400."""
@@ -207,7 +210,10 @@ class Handler(SimpleHTTPRequestHandler):
         try:
             return self._post(url, q)
         except ValueError as e:                                  # e.g. an upload over the size limit
-            return self._json({"error": str(e)}, 413)
+            try:
+                return self._json({"error": str(e)}, 413)
+            except OSError:                                      # a cancelled upload: the page has gone already
+                self.close_connection = True
 
     def _post(self, url, q):
         if eb.HOSTED and url.path in ("/api/editor/selftest", "/api/editor/choose-folder", "/api/editor/reveal", "/api/decision"):
@@ -248,6 +254,10 @@ class Handler(SimpleHTTPRequestHandler):
         if url.path == "/api/editor/library/choose":
             return self._editor(eb.library_choose, body.get("id", ""), int(body.get("index", 0)),
                                 body.get("outlines"), body.get("image"))
+        if url.path == "/api/editor/cancel":            # stop an export that is running
+            return self._editor(eb.cancel, body.get("job", ""))
+        if url.path == "/api/editor/bundle/discard":    # a single-image upload the visitor cancelled
+            return self._editor(eb.bundle_discard, body.get("id", ""))
         if url.path == "/api/editor/bundle/begin":
             return self._editor(eb.bundle_begin)
         if url.path == "/api/editor/bundle/scan":
