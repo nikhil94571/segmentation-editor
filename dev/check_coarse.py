@@ -242,19 +242,37 @@ const cor = []; for (let i = 0; i <= 80; i++) cor.push({{ x: 4 * i, y: 0 }});
 for (let i = 1; i <= 60; i++) {{ const t = i / 60 * Math.PI / 2; cor.push({{ x: 320 * Math.cos(t) + 6 * Math.sin(9 * t), y: 220 * Math.sin(t) }}); }}
 for (let i = 80; i >= 1; i--) cor.push({{ x: 0, y: 220 * i / 80 }});
 const e = G.fitSmoothClosed(cor, 5.33, 2, {{ w: 1000, h: 800 }}), fl = G.flatten(e, 0.5);
+// a region filling the image's top-right corner: one node exactly at the corner, none beside it
+const tr = []; for (let i = 0; i <= 50; i++) tr.push({{ x: 800 + 4 * i - 0.3, y: 0.4 }});
+for (let i = 1; i <= 40; i++) tr.push({{ x: 999.6, y: 4 * i }});
+for (let i = 1; i <= 60; i++) {{ const t = i / 60 * Math.PI / 2; tr.push({{ x: 1000 - 200 * Math.sin(t), y: 160 - 160 * Math.sin(t) }}); }}
+const f2 = G.fitSmoothClosed(tr, 5.33, 2, {{ w: 1000, h: 800 }});
+const nearCorner = f2.nodes.filter((q) => Math.hypot(q.x - 1000, q.y) < 15);
 console.log(JSON.stringify({{ ellipse: a.nodes.length, ellipse_far: far(a, ring), stadium: b.nodes.length, stadium_far: far(b, stad), old_ellipse: c.nodes.length,
-  edge_outside: Math.min(...fl.map((q) => Math.min(q.x, q.y))) }}));
+  edge_outside: Math.min(...fl.map((q) => Math.min(q.x, q.y))), corner_nodes: nearCorner.map((q) => [q.x, q.y]) }}));
 """
 fit = json.loads(subprocess.check_output(["node", "-e", js]))
 check("fitter: a wobbly ellipse in 4 nodes or fewer, within tolerance", fit["ellipse"] <= 4 and fit["ellipse_far"] <= 5.4, str(fit))
 check("fitter: two straight sides and two round ends in 6 nodes or fewer, within tolerance", fit["stadium"] <= 6 and fit["stadium_far"] <= 5.4, str(fit))
 check("fitter: along the image's edge the outline is straight and never leaves the image", fit["edge_outside"] > -0.01, str(fit["edge_outside"]))
+check("fitter: at the image's corner, one node exactly on the corner", fit["corner_nodes"] == [[1000, 0]], str(fit["corner_nodes"]))
 
 # ---- the practice images are unchanged ----
 lib = eb._read_lib("practice")
 sid = eb.open_library_case("practice", 0)["id"]
 pm = json.loads((eb._sdir(sid) / "meta.json").read_text())
 check("practice images: still cut at 0.5, not treated as tiles", pm["threshold"] == 0.5 and not pm.get("coarse") and pm["fit_tol"] == 3)
+
+# ---- names: copies get (2), (3) as in a file browser ----
+check("names: a repeated name becomes name (2), then name (3)", eb._unique("lib", ["lib"]) == "lib (2)" and eb._unique("lib", ["lib", "lib (2)"]) == "lib (3)" and eb._unique("new", ["lib"]) == "new")
+l1, l2 = eb.library_begin("Same name"), eb.library_begin("Same name")
+check("names: two libraries uploaded with one name", [eb._read_lib(l["id"])["name"] for l in (l1, l2)] == ["Same name", "Same name (2)"])
+fsrc = folders[1]
+b3 = eb.scan_bundle(fsrc, files_of(fsrc))
+s1 = eb.add_single(eb.import_session(b3["route"], {k: fsrc / v for k, v in b3["files"].items()}, name="Twice"))
+s2 = eb.add_single(eb.import_session(b3["route"], {k: fsrc / v for k, v in b3["files"].items()}, name="Twice"))
+names2 = [c["name"] for c in eb._read_lib("single")["cases"]][-2:]
+check("names: the same single image opened twice", names2 == ["Twice", "Twice (2)"] and json.loads((eb._sdir(s2["id"]) / "meta.json").read_text())["name"] == "Twice (2)", str(names2))
 
 if saved_settings is None:
     eb.SETTINGS.unlink(missing_ok=True)

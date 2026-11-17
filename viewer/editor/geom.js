@@ -196,24 +196,44 @@
      replaces its two neighbouring pieces stays within tol everywhere. Tangents at the remaining nodes are kept,
      so the curve stays smooth through them. */
   G.fitSmoothClosed = (ring, tol, minNodes = 2, bounds = null) => {
-    const step = 2.5, pts = G.resample(dedupe(ring), step, true), n = pts.length, err = tol * tol;
+    const step = 2.5, err = tol * tol;
+    // points within 2 px of the image's border are put on it, so a stretch along the edge is exactly straight and
+    // the image's own corner is one point
+    const snap = (p) => {
+      if (!bounds) return p;
+      let { x, y } = p;
+      if (x <= 2) x = 0; else if (x >= bounds.w - 2) x = bounds.w;
+      if (y <= 2) y = 0; else if (y >= bounds.h - 2) y = bounds.h;
+      return P(x, y);
+    };
+    const pts = dedupe(G.resample(dedupe(ring), step, true).map(snap)), n = pts.length;
     if (n < 8) return G.fitClosed(ring, tol);
     const span = (a, z) => { const s = []; for (let i = a; ; i++) { s.push(pts[i % n]); if (i % n === z % n && s.length > 1) break; } return s; };
+    const gap = (a, b) => (b - a + n) % n;
     // a true corner (the outline turns sharply, e.g. where it meets the image edge or pinches to a point) is
     // kept as one node with a sharp turn, never removed; everywhere else the curve stays smooth
-    const cs = corners(pts, step);
-    // where the outline runs along the image's edge it is a straight line: it gets a straight segment, and a fixed
-    // node where it leaves the edge, so the curve never bows out past the image
-    const edgeOf = (p) => !bounds ? 0 : p.x <= 1 ? 1 : p.x >= bounds.w - 1 ? 2 : p.y <= 1 ? 3 : p.y >= bounds.h - 1 ? 4 : 0;
-    const E = pts.map(edgeOf), straight = new Set();
+    let cs = corners(pts, step);
+    // where the outline runs along the image's edge it is a straight line: it gets a straight segment, and one fixed
+    // node where it leaves the edge (or one at the image's corner, where it turns onto the next edge)
+    const edgeOf = (p) => !bounds ? 0 : p.x === 0 ? 1 : p.x === bounds.w ? 2 : p.y === 0 ? 3 : p.y === bounds.h ? 4 : 0;
+    const E = pts.map(edgeOf), straight = new Set(), runs = [];
     if (E.some((e) => e)) {
       for (let i = 0; i < n; i++) {
         if (!E[i] || E[(i - 1 + n) % n] === E[i]) continue;          // the start of a run along one edge
         let j = i; while (E[(j + 1) % n] === E[i] && (j + 1) % n !== i) j++;
-        if (j - i >= 2) { cs.push(i); cs.push(j % n); straight.add(i); }
+        if (j - i >= 2) runs.push({ i, j: j % n, e: E[i] });
       }
-      cs.sort((a, b) => a - b);
-      for (let k = cs.length - 1; k > 0; k--) if (cs[k] === cs[k - 1]) cs.splice(k, 1);
+      runs.sort((a, b) => a.i - b.i);
+      const ends = [];
+      runs.forEach((r, k) => {
+        const next = runs[(k + 1) % runs.length];
+        straight.add(r.i); ends.push(r.i);
+        // a run that turns onto the next edge at the image's corner: one node there, not one each side of it
+        if (!(runs.length > 1 && next.e !== r.e && gap(r.j, next.i) <= 3)) ends.push(r.j);
+      });
+      cs = cs.filter((c) => ends.every((e) => Math.min(gap(c, e), gap(e, c)) > 4));   // no second node beside an edge's end
+      cs = cs.concat(ends).sort((a, b) => a - b);
+      cs = cs.filter((c, k) => k === 0 || c !== cs[k - 1]);
     }
     let segs = [];
     if (!cs.length) {

@@ -288,6 +288,11 @@ details.more summary { text-align: center; }
 .rev-item.busy { opacity: .55; pointer-events: none; }
 .d-del { margin-top: 12px; width: 100%; justify-content: center; }
 .card .btn { margin-top: 11px; }
+/* choosing files by hand: Open sits at the right, level with the last row, until then greyed out */
+.card.manual { display: grid; grid-template-columns: minmax(0, 1fr) auto; column-gap: 14px; }
+.card.manual > * { grid-column: 1; }
+.card.manual > .btn { grid-column: 2; grid-row: 1 / span 9; align-self: end; margin-top: 0; }
+.btn.primary:disabled { opacity: .38; cursor: not-allowed; box-shadow: none; }
 .list { display: grid; gap: 6px; }
 .li { display: flex; align-items: center; gap: 10px; padding: 8px 10px; background: var(--panel-2); border: 1px solid var(--line-soft); border-radius: 8px; font-size: var(--fs-small); }
 .li .q-name { font-size: var(--fs-small); }
@@ -371,6 +376,8 @@ kbd { font-family: var(--font-mono); font-size: var(--fs-micro); font-weight: 50
 .side .sec.shut.folding > .sec-b { display: block; }
 .measure.shut.folding .meas-b { display: block; }
 #cv { transition: opacity .2s ease; }
+#previewImg { transition: opacity .16s ease; }
+#previewImg.swap { opacity: .25; }
 #cv.switching { opacity: .35; }
 .preview:not([hidden]) { animation: rev-in .18s ease; }
 .review.closing { opacity: 0; transition: opacity .18s ease; }
@@ -719,29 +726,29 @@ input[type=number]::-webkit-inner-spin-button, input[type=number]::-webkit-outer
       <div class="picks" id="onePick" hidden><div class="picks-in" id="onePickIn"></div></div>
       <details class="more">
         <summary>Choose the files by hand</summary>
-      <div class="card">
+      <div class="card manual">
         <h4>Model output</h4>
         <div class="field"><span>Original image (.png, .jpg, .tif)</span><input type="file" id="f_model_image" accept=".png,.jpg,.jpeg,.tif,.tiff"></div>
         <div class="field"><span>Raw output (.npz), probability map (.tif, .npy) or mask (.png, .tif, .npy)</span><input type="file" id="f_model_out" accept=".png,.tif,.tiff,.npy,.npz"></div>
         <div class="field"><span>Cut-off, for probability maps (a raw .npz output uses its own)</span><input type="number" id="f_model_thr" min="0.05" max="0.95" step="0.025" value="0.675"></div>
-        <button class="btn primary" data-import="model">Open model output</button>
+        <button class="btn primary" data-import="model" disabled>Open</button>
       </div>
-      <div class="card">
+      <div class="card manual">
         <h4>ImageJ file</h4>
         <div class="field"><span>ImageJ .tif saved with its outlines inside</span><input type="file" id="f_tif" accept=".tif,.tiff"></div>
-        <button class="btn primary" data-import="tif">Open ImageJ file</button>
+        <button class="btn primary" data-import="tif" disabled>Open</button>
       </div>
-      <div class="card">
+      <div class="card manual">
         <h4>Shaded image + original</h4>
         <div class="field"><span>Shaded image (.png, .jpg, .tif)</span><input type="file" id="f_shot_overlay" accept=".png,.jpg,.jpeg,.tif,.tiff"></div>
         <div class="field"><span>Original image, same size, without the shading</span><input type="file" id="f_shot_image" accept=".png,.jpg,.jpeg,.tif,.tiff"></div>
-        <button class="btn primary" data-import="screenshot">Open shaded image + original</button>
+        <button class="btn primary" data-import="screenshot" disabled>Open</button>
       </div>
-      <div class="card">
+      <div class="card manual">
         <h4>ImageJ + Outlines</h4>
         <div class="field"><span>Image (.tif, .png, .jpg)</span><input type="file" id="f_ij_image" accept=".tif,.tiff,.png,.jpg,.jpeg"></div>
         <div class="field"><span>Outlines (.zip, .roi, .geojson)</span><input type="file" id="f_ij_rois" accept=".zip,.roi,.geojson,.json"></div>
-        <button class="btn primary" data-import="imagej">Open image + outlines</button>
+        <button class="btn primary" data-import="imagej" disabled>Open</button>
       </div>
       </details>
       <div class="err" id="importErr"></div>

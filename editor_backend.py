@@ -968,10 +968,10 @@ def _build_cases(root, files):
             continue
         name = d.name if str(d) != "." else Path(b["files"].get("image") or next(iter(b["files"].values()))).stem
         cases.append({"name": name, "sid": None, "dir": str(d), **_bundle_case(b)})
-    names = [c["name"] for c in cases]                            # two folders of the same name in different places
-    for i, c in enumerate(cases):
-        if names.count(c["name"]) > 1:
-            c["name"] = f"{c['name']}-{i + 1}"
+    seen = []                                                     # two folders of the same name in different places
+    for c in cases:
+        c["name"] = _unique(c["name"], seen)
+        seen.append(c["name"])
     return cases, skipped
 
 
@@ -983,10 +983,29 @@ def _safe_rel(path):
     return Path(*parts)
 
 
+def _unique(name, taken):
+    """name, or "name (2)", "name (3)"... whichever is not taken yet (as a file browser names copies)."""
+    taken = {t.lower() for t in taken}
+    if name.lower() not in taken:
+        return name
+    k = 2
+    while f"{name} ({k})".lower() in taken:
+        k += 1
+    return f"{name} ({k})"
+
+
+def _library_names(skip=None):
+    return [l["name"] for l in list_libraries()["libraries"] if l["id"] != skip]
+
+
 def library_begin(name):
-    lid = f"{_slug(name or 'library')}-{time.strftime('%m%d%H%M%S')}"
+    lid = base = f"{_slug(name or 'library')}-{time.strftime('%m%d%H%M%S')}"
+    k = 2
+    while _lib_path(lid).exists():                              # two uploads of one name in the same second
+        lid, k = f"{base}-{k}", k + 1
+    name = _unique(name or "Library", _library_names())
     (_lib_path(lid) / "files").mkdir(parents=True)
-    _write_lib({"id": lid, "name": name or "Library", "created": time.strftime("%Y-%m-%d %H:%M"),
+    _write_lib({"id": lid, "name": name, "created": time.strftime("%Y-%m-%d %H:%M"),
                 "root": f"libraries/{lid}/files", "own_files": True, "cases": []})
     return {"id": lid}
 
@@ -1298,7 +1317,7 @@ def set_classes(lid, classes):
 
 def rename_library(lid, name):
     lib = _read_lib(lid)
-    lib["name"] = (name or "").strip()[:80] or lib["name"]
+    lib["name"] = _unique((name or "").strip()[:80], _library_names(skip=lid)) if (name or "").strip() else lib["name"]
     _write_lib(lib)
     return {"ok": True, "name": lib["name"]}
 
@@ -1339,7 +1358,10 @@ def add_single(meta):
     except ValueError:
         lib = {"id": "single", "name": "Single imports", "created": time.strftime("%Y-%m-%d %H:%M"),
                "root": "sessions", "own_files": False, "cases": []}
-    lib["cases"].append({"name": meta["name"], "route": meta["route"], "files": {}, "sid": meta["id"]})
+    name = _unique(meta["name"], [c["name"] for c in lib["cases"]])
+    if name != meta["name"]:
+        _patch_meta(meta, name=name)
+    lib["cases"].append({"name": name, "route": meta["route"], "files": {}, "sid": meta["id"]})
     _write_lib(lib)
     return {"id": meta["id"], "library": "single", "index": len(lib["cases"]) - 1}
 

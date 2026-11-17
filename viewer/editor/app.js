@@ -3,6 +3,7 @@
   "use strict";
   const $ = (id) => document.getElementById(id);
   const cv = $("cv"), ctx = cv.getContext("2d"), stage = $("stage");
+  ["wheel", "pointerdown"].forEach((ev) => stage.addEventListener(ev, () => stopViewAnim(), { capture: true, passive: true }));
   const HIT = 9;            // screen px: how close counts as "on" a node or a line
   const CLOSE = 14;         // screen px: finishing this near the start closes a shape
   const FIT_TOL = 3;        // image px: how closely fitted curves follow the model's outline
@@ -127,11 +128,26 @@
     const s = Math.min(40, Math.max(0.05, S.view.s * f)), k = s / S.view.s;
     S.view = { s, x: cx - (cx - S.view.x) * k, y: cy - (cy - S.view.y) * k }; S.fitted = false; draw();
   }
+  /* Going to a region: a quick eased zoom and pan, so the eye follows where it went. Scrolling or dragging
+     stops it at once. */
+  let viewAnim = 0;
   function focusRegion(r) {
     const bb = G.bbox(r.paths), b = stage.getBoundingClientRect(), w = Math.max(bb.x1 - bb.x0, 40), h = Math.max(bb.y1 - bb.y0, 40);
-    const s = Math.min(6, Math.min(b.width / w, b.height / h) * 0.55);
-    S.view = { s, x: b.width / 2 - (bb.x0 + bb.x1) / 2 * s, y: b.height / 2 - (bb.y0 + bb.y1) / 2 * s }; S.fitted = false; draw();
+    const s1 = Math.min(6, Math.min(b.width / w, b.height / h) * 0.55), c1 = { x: (bb.x0 + bb.x1) / 2, y: (bb.y0 + bb.y1) / 2 };
+    const v0 = S.view, s0 = v0.s, c0 = { x: (b.width / 2 - v0.x) / s0, y: (b.height / 2 - v0.y) / s0 };
+    const at = (t) => { const s = s0 * Math.pow(s1 / s0, t), cx = c0.x + (c1.x - c0.x) * t, cy = c0.y + (c1.y - c0.y) * t; return { s, x: b.width / 2 - cx * s, y: b.height / 2 - cy * s }; };
+    S.fitted = false;
+    const id = ++viewAnim, ms = 320, t0 = performance.now();
+    if (REDUCE || !S.img) { S.view = at(1); draw(); return; }
+    const tick = (now) => {
+      if (id !== viewAnim) return;
+      const t = Math.min(1, (now - t0) / ms), e = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+      S.view = at(e); draw();
+      if (t < 1) requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
   }
+  const stopViewAnim = () => { viewAnim++; };
 
   /* ---------------- drawing ---------------- */
   function tracePath(p2, path) {
@@ -1026,7 +1042,13 @@
     S.pick = i; S.pickLib = lid;
     $("libList").querySelectorAll("[data-case]").forEach((b) => { const on = +b.dataset.case === i && b.dataset.lid === lid; b.classList.toggle("sel", on); if (on) b.scrollIntoView({ block: "nearest" }); });
     const pv = $("preview"), m = document.querySelector("#openModal .modal").getBoundingClientRect();
-    $("previewImg").src = `/api/editor/library/preview?id=${encodeURIComponent(lid)}&index=${i}&t=${Date.now()}`;
+    const src = `/api/editor/library/preview?id=${encodeURIComponent(lid)}&index=${i}&t=${Date.now()}`, im = $("previewImg");
+    if (pv.hidden || REDUCE) { im.src = src; im.dataset.want = src; }
+    else {                                                      // a different image fades in over the last one
+      im.classList.add("swap"); im.dataset.want = src;
+      const next = new Image(); next.src = src;
+      next.decode().catch(() => {}).then(() => { if (im.dataset.want === src) { im.src = src; requestAnimationFrame(() => im.classList.remove("swap")); } });
+    }
     $("previewName").textContent = cases[i].name;
     pv.hidden = false;
     pv.style.left = Math.min(m.right + 16, window.innerWidth - 312) + "px";      // beside the dialog, with a gap
@@ -1064,7 +1086,7 @@
       <div class="li ${l.id === cur ? "current" : ""} ${l.id === S.libOpen ? "open" : "shut"}" data-lib="${esc(l.id)}" title="Click to show or hide its images">
         <svg class="chev" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></svg><span class="q-name" data-name>${esc(l.name)}</span>
         <span class="meta">${l.count} image${l.count === 1 ? "" : "s"}${l.done ? ` · ${l.done} done` : ""}${l.edited ? ` · ${l.edited} edited` : ""}</span>
-        ${l.id === cur ? '<span class="tag cur">Working on this</span>' : '<button class="btn" data-act="use">Work on this</button>'}
+        ${l.id === cur ? '<span class="tag cur">Current</span>' : ""}
         <button class="btn" data-act="rename">Rename</button>
         ${S.hosted && l.id === "practice" ? "" : '<button class="btn danger" data-act="delete">Delete</button>'}
       </div>${l.id === S.libOpen && casesOf(l.id) ? `<div class="cases">${casesOf(l.id).map((c, i) => `<button class="${l.id === cur && i === S.caseIndex ? "on" : ""} ${l.id === S.pickLib && i === S.pick ? "sel" : ""}" data-case="${i}" data-lid="${esc(l.id)}"><span class="q-name">${esc(c.name)}</span>${c.done ? '<span class="tag done">done</span>' : c.edited ? '<span class="tag">edited</span>' : ""}</button>`).join("")}</div>` : ""}`).join("")
@@ -1401,6 +1423,10 @@
   $("tourBtn").onclick = () => { $("tutModal").classList.remove("show"); window.Tutorial.pause(); tour(); };
   document.querySelectorAll("#openTabs button").forEach((b) => (b.onclick = () => setTab(b.dataset.tab)));
   document.querySelectorAll("[data-import]").forEach((b) => (b.onclick = () => doImport(b.dataset.import)));
+  /* each "by hand" Open needs its files first */
+  const NEEDS = { model: ["f_model_image", "f_model_out"], tif: ["f_tif"], screenshot: ["f_shot_overlay", "f_shot_image"], imagej: ["f_ij_image", "f_ij_rois"] };
+  const readyCheck = () => Object.entries(NEEDS).forEach(([k, ids]) => { const b = document.querySelector(`[data-import="${k}"]`); if (b) b.disabled = !ids.every((id) => $(id).files.length); });
+  Object.values(NEEDS).flat().forEach((id) => $(id).addEventListener("change", readyCheck)); readyCheck();
   document.querySelectorAll(".backdrop").forEach((m) => m.addEventListener("click", (e) => { if (e.target === m || e.target.closest("[data-close]")) { m.classList.remove("show"); window.Tutorial.pause(); } }));
   $("theme").onclick = () => {
     const dark = matchMedia("(prefers-color-scheme: dark)").matches, cur = document.documentElement.dataset.theme || (dark ? "dark" : "light");
