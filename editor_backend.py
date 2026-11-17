@@ -519,7 +519,8 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
             rois += h2.imagej_rois(*geoms[-1], split=split)        # holes are true holes unless asked otherwise
 
     files = {}
-    src = _slug(Path(meta.get("source_name") or "").stem) or stem
+    # the original image's name when the model's file gives one, otherwise this image's own name
+    src = _slug(Path(meta["source_name"]).stem) if meta.get("source_name") else stem
     full = meta.get("original") if "corrected_mask_full_tif" in want else None
     if "corrected_mask_tif" in want:
         # <image>_corrected_mask.tif: the image's size, one 8-bit channel, 0 = background, 255 = inside a region.
