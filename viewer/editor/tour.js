@@ -278,12 +278,15 @@
         $("measure").classList.remove("shut"); Ed().refresh();
         $("measure").scrollIntoView({ block: "nearest" }); await wait(t, 60);
         const sel = document.querySelector("#measBody > div"), table = document.querySelector("#measBody .meas-t");
-        await spot(t, [box(sel, 4)].concat(document.querySelector(".q-item.on") ? [box(".q-item.on", 2)] : []));
+        // the light covers the Measure section edge to edge, heading included: first down to the region's numbers,
+        // then it grows down over the class table, so the whole section is lit at the end
+        const ms = box("#measure", 0), cut = sel.getBoundingClientRect().bottom + 10;
+        await spot(t, [{ x: ms.x, y: ms.y, w: ms.w, h: cut - ms.y }]);
         say("The selected region: its own measurements", 2600);
         const a = sel.getBoundingClientRect();
         await move(t, { x: a.left + a.width * 0.3, y: a.top + a.height * 0.55 }, 0.9); await wait(t, 600);
         await move(t, { x: a.left + a.width * 0.75, y: a.top + a.height * 0.8 }, 0.8); await wait(t, 900);
-        await spot(t, [box(table, 4)]);
+        await spot(t, [box("#measure", 0)], 520);
         say("Every class: its area, share of the regions, share of the image", 3000);
         const b = table.getBoundingClientRect();
         await move(t, { x: b.left + b.width * 0.25, y: b.top + b.height * 0.4 }, 0.9); await wait(t, 700);
