@@ -480,15 +480,19 @@ def progress(job):
     return _progress.get(job, {"done": 0, "total": 0})
 
 
-def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=False):
+def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=False, tick=None):
     """regions: [{name, rings: [[[x, y], ...], ...]}] (curves already flattened by the page).
     Writes PNGs + ImageJ + QuPath files to sessions/<id>/export/ and checks the ImageJ file reads back."""
     want = set(formats or FORMATS) & set(FORMATS)
     split = "holes_split" in (formats or ())        # an option, not a file type: holes as separate ImageJ polygons
     if not want:
         raise ValueError("Choose at least one file type to export.")
-    if job:
-        _progress[job] = {"done": 0, "total": 1}
+    def prog(f):                                   # how far this export is, 0..1 (a library export passes its own tick)
+        if tick:
+            tick(f)
+        elif job:
+            _progress[job] = {"done": round(f, 3), "total": 1}
+    prog(0)
     d = _sdir(sid)
     meta = json.loads((d / "meta.json").read_text())
     stem = _slug(stem or meta["name"])
@@ -497,10 +501,12 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
     out.mkdir()
     base = np.asarray(Image.open(d / "tissue.png").convert("RGB"))
     shape = base.shape[:2]
+    prog(0.05)
 
     mask = np.zeros(shape, bool)
     rois, geoms = [], []
-    for reg in regions:
+    for ri, reg in enumerate(regions):
+        prog(0.05 + 0.3 * ri / max(len(regions), 1))
         rings = [np.asarray(r, float) for r in reg["rings"] if len(r) >= 3]
         if not rings:
             continue
@@ -519,6 +525,13 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
             rois += h2.imagej_rois(*geoms[-1], split=split)        # holes are true holes unless asked otherwise
 
     files = {}
+    steps = [k for k in ("corrected_mask_tif", "corrected_mask_full_tif", "mask_png", "overlay_png", "imagej_tif",
+                         "roiset_zip", "qupath_geojson") if k in want]
+    done_steps = [0]
+    def step():                                    # one file written
+        done_steps[0] += 1
+        prog(0.35 + 0.5 * done_steps[0] / max(len(steps), 1))
+    prog(0.35)
     # the original image's name when the model's file gives one, otherwise this image's own name
     src = _slug(Path(meta["source_name"]).stem) if meta.get("source_name") else stem
     full = meta.get("original") if "corrected_mask_full_tif" in want else None
@@ -528,6 +541,7 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
         name = f"{src}_corrected_mask_{shape[1]}x{shape[0]}.tif" if full else f"{src}_corrected_mask.tif"
         tifffile.imwrite(out / name, (mask * 255).astype(np.uint8), photometric="minisblack")
         files["corrected_mask_tif"] = name
+        step()
     if full:
         # the same mask at the size of the original the model's image was scaled from: the curves are drawn
         # again at that size (not the small mask enlarged), so the edges stay smooth
@@ -545,24 +559,31 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
                 draw.polygon([(x * sx - 0.5, y * sy - 0.5) for x, y in rings[k]], fill=0 if depth[k] % 2 else 255)
         tifffile.imwrite(out / f"{src}_corrected_mask.tif", np.asarray(big, np.uint8), photometric="minisblack")
         files["corrected_mask_full_tif"] = f"{src}_corrected_mask.tif"
+        step()
     if "mask_png" in want:
         Image.fromarray((mask * 255).astype(np.uint8)).save(out / f"{stem}_mask.png")
         files["mask_png"] = f"{stem}_mask.png"
+        step()
     if "overlay_png" in want:
         shaded = base.astype(float)
         shaded[mask] = (1 - h2.BLEND_ALPHA) * shaded[mask] + h2.BLEND_ALPHA * h2.BLEND_RGB
         Image.fromarray(shaded.round().astype(np.uint8)).save(out / f"{stem}_overlay.png")
         files["overlay_png"] = f"{stem}_overlay.png"
+        step()
     if "imagej_tif" in want:
         h2.write_imagej_tif(out / f"{stem}_ImageJ.tif", base, rois)
         files["imagej_tif"] = f"{stem}_ImageJ.tif"
+        step()
     if "roiset_zip" in want and rois:
         roiwrite(out / f"{stem}_RoiSet.zip", rois)
         files["roiset_zip"] = f"{stem}_RoiSet.zip"
+        step()
     if "qupath_geojson" in want:
         h2.write_qupath_geojson(out / f"{stem}_QuPath.geojson", geoms)
         files["qupath_geojson"] = f"{stem}_QuPath.geojson"
+        step()
 
+    prog(0.86)
     iou = None                                                     # read an ImageJ file back from disk, if one was written
     check = files.get("imagej_tif") or files.get("roiset_zip")
     if check:
@@ -570,6 +591,7 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
         union = (back | mask).sum()
         iou = round(float((back & mask).sum() / union), 4) if union else 1.0
     download = None
+    prog(0.92)
     if dest is not None or (HOSTED and deliver):                   # copy the set into the chosen folder
         target = _dest(dest) / stem
         n = 2
@@ -581,8 +603,7 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
         if HOSTED:
             download = _zip(target)
             shutil.rmtree(d / "export", ignore_errors=True)
-    if job:
-        _progress[job] = {"done": 1, "total": 1}
+    prog(1)
     return {"dir": out.name if HOSTED else str(out), "download": download,
             "files": {k: f"/sessions/{sid}/export/{v}" for k, v in files.items()},
             "regions": len(regions), "mask_px": int(mask.sum()), "imagej_iou": iou}
@@ -924,6 +945,8 @@ def library_choose(lid, index, outlines=None, image=None):
     c = lib["cases"][index]
     if "dir" not in c:
         raise ValueError("This image's files were paired by name; there is nothing to choose.")
+    if c.get("files_cleared"):
+        raise ValueError("This image has been opened, and its uploaded files were cleared to save space. Upload it again to choose other files.")
     root = _lib_root(lib)
     files = [p for p in (root / c["dir"]).iterdir() if p.is_file()]
     b = bundle_with(root, files, outlines, image)
@@ -1015,7 +1038,38 @@ def library_begin(name):
     return {"id": lid}
 
 
+# ---------- hosted: space per visitor ----------
+WORKSPACE_LIMIT_GB = float(os.environ.get("WORKSPACE_LIMIT_GB", "3"))
+
+
+def _space_used():
+    """Bytes this visitor's workspace holds (the shared practice copies, linked in, are not counted)."""
+    used = 0
+    for f in _base().rglob("*"):
+        try:
+            st = f.lstat()
+        except OSError:
+            continue
+        if f.is_file() and st.st_nlink == 1:
+            used += st.st_size
+    return used
+
+
+def _space_check(incoming, cleanup=None):
+    """Hosted: refuse an upload that would take this visitor past the limit, so one person cannot fill the disk."""
+    if not HOSTED:
+        return
+    used = _space_used()
+    if used + incoming > WORKSPACE_LIMIT_GB * 1e9:
+        if cleanup is not None:
+            shutil.rmtree(cleanup, ignore_errors=True)            # a half-uploaded library or folder is not kept
+        raise ValueError(f"This upload would take you past the {WORKSPACE_LIMIT_GB:g} GB this demo server keeps per visitor "
+                         f"({used / 1e9:.1f} GB used so far). Delete a library you no longer need (Open, Delete), or for "
+                         "large batches run the editor on your own computer.")
+
+
 def library_put(lid, rel, data):
+    _space_check(len(data), cleanup=_lib_path(lid))
     dest = _lib_path(lid) / "files" / _safe_rel(rel)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
@@ -1061,6 +1115,7 @@ def bundle_begin():
 
 
 def bundle_put(bid, rel, data):
+    _space_check(len(data), cleanup=_bundle_dir(bid))
     dest = _bundle_dir(bid) / _safe_rel(rel)
     dest.parent.mkdir(parents=True, exist_ok=True)
     dest.write_bytes(data)
@@ -1361,9 +1416,27 @@ def open_library_case(lid, index):
         meta = import_session(c["route"], {k: root / v for k, v in c["files"].items()}, name=c["name"], sid=sid, threshold=t)
         if c.get("original"):
             _patch_meta(meta, original=c["original"])
+        if HOSTED and lib.get("own_files"):
+            _clear_case_files(root, c)
     c["sid"] = sid
     _write_lib(lib)
     return {"id": sid}
+
+
+def _clear_case_files(root, c):
+    """Hosted: once an image of an uploaded library is opened, the editor works from its own copy (image, model
+    output, outlines); the uploaded files are deleted to save the server's disk. A folder's other files go too."""
+    try:
+        if c.get("dir") is not None:
+            d = root / c["dir"]
+            for f in d.iterdir():
+                if f.is_file():
+                    f.unlink()
+        for v in c.get("files", {}).values():
+            (root / v).unlink(missing_ok=True)
+        c["files_cleared"] = True
+    except OSError:
+        pass
 
 
 def add_single(meta):
@@ -1480,8 +1553,14 @@ def export_library(lid, dest=None, formats=None, job=None):
     rows = []
     if job:
         _progress[job] = {"done": 0, "total": len(lib["cases"])}
+    n_cases = len(lib["cases"])
+    def at(x):                                         # x images done (fractions too), for the page's progress bar
+        if job:
+            _progress[job] = {"done": round(x, 3), "total": n_cases}
     for i, c in enumerate(lib["cases"]):
-        sid = open_library_case(lid, i)["id"]
+        at(i)
+        sid = open_library_case(lid, i)["id"]                   # an image not opened yet is made first
+        at(i + 0.25)
         sd = _sdir(sid)
         edited = (sd / "state.json").exists()
         if edited:
@@ -1491,7 +1570,7 @@ def export_library(lid, dest=None, formats=None, job=None):
         else:
             regions = [{"name": r["name"], "rings": r["rings"]} for r in json.loads((sd / "meta.json").read_text())["regions"]]
         stem = f"{i + 1:03d}_{_slug(c['name'])}"
-        r = export(sid, regions, stem, formats=want + opts)
+        r = export(sid, regions, stem, formats=want + opts, tick=lambda f, i=i: at(i + 0.25 + 0.75 * f))
         if job:
             _progress[job] = {"done": i + 1, "total": len(lib["cases"])}
         for key, url in r["files"].items():
@@ -1508,6 +1587,7 @@ def export_library(lid, dest=None, formats=None, job=None):
         for c in _read_lib(lid)["cases"]:
             if c.get("sid"):
                 shutil.rmtree(_sdir(c["sid"]) / "export", ignore_errors=True)
+    at(n_cases - 0.02)                                          # packing the .zip (hosted)
     return {"dir": out.name if HOSTED else str(out), "download": _zip(out) if HOSTED else None, "images": len(rows),
             "done": sum(r["done"] == "yes" for r in rows), "edited": sum(r["edited"] == "yes" for r in rows),
             "min_iou": min((r["imagej_iou"] for r in rows if r["imagej_iou"] is not None), default=None)}

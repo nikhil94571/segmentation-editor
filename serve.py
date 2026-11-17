@@ -220,7 +220,12 @@ class Handler(SimpleHTTPRequestHandler):
             name = re.sub(r"[^a-zA-Z0-9._-]+", "_", q.get("name", ["file"])[0])[-80:]
             eb.uploads().mkdir(parents=True, exist_ok=True)
             token = f"{uuid.uuid4().hex[:12]}__{name}"
-            (eb.uploads() / token).write_bytes(self._body())
+            data = self._body()
+            try:
+                eb._space_check(len(data))
+            except ValueError as e:
+                return self._json({"error": str(e)}, 400)
+            (eb.uploads() / token).write_bytes(data)
             return self._json({"token": token})
         body = json.loads(self._body() or b"{}")
         if url.path == "/api/editor/import":
@@ -230,8 +235,12 @@ class Handler(SimpleHTTPRequestHandler):
                 if f.exists():
                     files[role] = f
             t = body.get("threshold")
-            return self._editor(lambda: eb.add_single(eb.import_session(
-                body.get("route"), files, body.get("name"), float(t) if t not in (None, "") else None)))
+            def one_off():
+                out = eb.add_single(eb.import_session(body.get("route"), files, body.get("name"), float(t) if t not in (None, "") else None))
+                for f in files.values():                    # the session holds what it needs; the uploads go
+                    f.unlink(missing_ok=True)
+                return out
+            return self._editor(one_off)
         if url.path == "/api/editor/library/hide":
             return self._editor(eb.set_hidden, body.get("id", ""), bool(body.get("hidden")))
         if url.path == "/api/editor/library/choose":

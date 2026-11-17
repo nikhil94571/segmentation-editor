@@ -931,10 +931,25 @@
     const body = $("exportBody"), job = "j" + Date.now() + Math.random().toString(36).slice(2, 7);
     body.innerHTML = `<p class="note" style="margin:0">Exporting ${scope === "library" ? esc(lib.name) : esc(S.meta.name)}…</p>
       <div class="prog"><i id="exBar"></i></div><div class="prog-t"><span id="exCount"></span><span id="exPct">0%</span></div>`;
-    const setBar = (done, total) => {
-      const pct = total ? Math.round(100 * done / total) : 0;
-      if ($("exBar")) { $("exBar").style.width = pct + "%"; $("exPct").textContent = pct + "%"; $("exCount").textContent = total > 1 ? `${done} of ${total} images` : ""; }
+    /* The bar eases toward each report from the server, then keeps creeping slowly toward the next step while it
+       waits, so it never stands still; it only shows 100% when the export is really done. */
+    let shown = 0, target = 0, ceiling = 4, total = 1, doneN = 0, finished = false;
+    const paint = () => {
+      if (!$("exBar")) return;
+      $("exBar").style.width = shown.toFixed(1) + "%"; $("exPct").textContent = Math.floor(shown) + "%";
+      $("exCount").textContent = total > 1 ? (finished ? `${total} of ${total} images` : `Image ${Math.min(total, Math.floor(doneN) + 1)} of ${total}`) : "";
     };
+    const setBar = (done, tot) => {
+      total = tot || 1; doneN = done;
+      if (finished) { target = ceiling = 100; return; }
+      target = Math.max(target, Math.min(97, 100 * done / total));
+      ceiling = Math.max(ceiling, Math.min(97, target + Math.max(4, 25 / total)));
+    };
+    const anim = setInterval(() => {
+      if (shown < target) shown = Math.min(target, shown + Math.max(0.8, (target - shown) * 0.25));
+      else if (shown < ceiling) shown = Math.min(ceiling, shown + Math.max(0.03, (ceiling - shown) * 0.012));
+      paint();
+    }, 50);
     const poll = setInterval(async () => { try { const p = await api("/api/editor/progress?job=" + job); setBar(p.done, p.total); } catch (e) {} }, 250);
     try {
       await saveNow();
@@ -948,8 +963,9 @@
         j = await api("/api/editor/export", { id: S.sid, regions, dest, formats, job });
         summary = `${j.regions} region${j.regions === 1 ? "" : "s"} exported from ${esc(S.meta.name)}.` + iouText(j.imagej_iou, "The ImageJ file was read back and matches the mask at");
       }
-      clearInterval(poll); setBar(1, 1);
-      await new Promise((r) => setTimeout(r, 350));               // let the bar be seen full
+      clearInterval(poll); finished = true; setBar(total, total);
+      await new Promise((r) => setTimeout(r, 450));               // let the bar be seen reaching full
+      clearInterval(anim);
       if (j.download) {                                         // hosted: the export comes back as a .zip
         const url = "/api/editor/download?name=" + encodeURIComponent(j.download);
         body.innerHTML = `<p class="note" style="margin:0 0 12px">${summary}</p>
@@ -966,7 +982,7 @@
       $("exDone").onclick = () => $("exportModal").classList.remove("show");
       return j;
     } catch (e) {
-      clearInterval(poll);
+      clearInterval(poll); clearInterval(anim);
       body.innerHTML = `<p class="err">${esc(e.message)}</p><div class="actions"><button class="btn" id="exBack">Back</button></div>`;
       $("exBack").onclick = () => showExport(scope, lib && lib.id, lib && lib.name);
     }
