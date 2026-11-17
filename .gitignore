@@ -15,3 +15,7 @@ exports/
 settings.json
 workspaces/
 backups/
+local-data/
+data/bcss/
+.venv-ml/
+models/
