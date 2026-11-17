@@ -213,8 +213,8 @@
     document.getElementById("export").click(); await wait(700);
     out.export_menu = { opens_as_menu: !!document.getElementById("exGo"), options: [...document.querySelectorAll("input[name=exScope]")].map((x) => x.value + (x.checked ? "*" : "")), save_in: document.getElementById("exDest").value };
     out.export_menu.formats = [...document.querySelectorAll("input[name=exFmt]")].map((x) => x.value).length;
-    const ej = await E.runExport("image", { id: S.lib.id, name: S.lib.name }, testDest, ["mask_png", "qupath_geojson"]);
-    out.export_image = { dir: ej.dir.replace(st.root, ""), text: document.getElementById("exportBody").innerText.replace(/\s+/g, " ").slice(0, 90) };
+    const ej = await E.runExport("image", { id: S.lib.id, name: S.lib.name }, testDest, ["mask_png", "qupath_geojson", "training"]);
+    out.export_image = { dir: ej.dir.replace(st.root, ""), text: document.getElementById("exportBody").innerText.replace(/\s+/g, " ").slice(0, 90), training: ej.training };
     document.getElementById("exportModal").classList.remove("show");
     // 14. library: next image saves this one and opens the next; previous comes back with edits kept
     const i0 = S.caseIndex, name0 = S.meta.name, n0r = S.regions.length;
@@ -237,9 +237,9 @@
     await E.toggleDone(); await wait(400);
     // 17. export the whole library to a chosen folder
     let seen = []; const watch = setInterval(() => { const e = document.getElementById("exPct"); if (e) seen.push(e.textContent); }, 200);
-    const lj = await E.runExport("library", { id: S.lib.id, name: S.lib.name }, testDest, ["mask_png", "imagej_tif"]);
+    const lj = await E.runExport("library", { id: S.lib.id, name: S.lib.name }, testDest, ["mask_png", "imagej_tif", "training"]);
     clearInterval(watch);
-    out.library_export = { dir: lj.dir.replace(st.root, ""), images: lj.images, progress_seen: [...new Set(seen)] };
+    out.library_export = { dir: lj.dir.replace(st.root, ""), images: lj.images, progress_seen: [...new Set(seen)], training: lj.training };
     document.getElementById("exportModal").classList.remove("show");
     out.header_order = [...document.querySelector(".topbar").children].slice(0, 3).map((x) => x.id || x.className);
     out.conf_head = document.getElementById("confHead").textContent;

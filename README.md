@@ -6,8 +6,8 @@
 
 A segmentation model is usually about right. This editor is for the last part: an expert opens the model's
 output, fixes the outlines that are off, draws what was missed, deletes what is wrong, and exports files that open
-in the tools the lab already uses. The corrections then go back into training: `ml/retrain.py` fine-tunes the model
-on them, and [a measured run of that loop](docs/retraining/README.md) shows the model improving round by round.
+in the tools the lab already uses, and, if asked, exports the corrections as training data for the next version of the
+model: the image, the corrected mask and the model's original mask, pixel for pixel.
 
 > **Status: prototype.** The practice images are breast cancer tissue from the public BCSS dataset, with the output
 > of a model trained here on other BCSS regions. Not yet used by a person on real lab data, and not yet run on a
@@ -24,9 +24,8 @@ on them, and [a measured run of that loop](docs/retraining/README.md) shows the 
 | **Labels** | Give each region a class (the list is set per library), mark it unsure, add a note · an Exclude class leaves artefacts out of the measurements |
 | **Measures** | Area, perimeter, longest diameter and circularity of a region · area and share per class · a ruler · in µm once the pixel size is set · one CSV for the whole library |
 | **Guides** | Regions are listed least-confident first, so the expert starts where the model was least sure · probability heatmap · the model's original outline as a dashed line |
-| **Exports** | ImageJ `.tif` with editable regions · ImageJ RoiSet `.zip` · QuPath GeoJSON · mask PNG · shaded PNG, for one image or a whole library |
+| **Exports** | ImageJ `.tif` with editable regions · ImageJ RoiSet `.zip` · QuPath GeoJSON · mask PNG · shaded PNG, for one image or a whole library · training data (opt-in, see below) |
 | **Teaches** | A first visit starts with a tour in which a pointer works the real editor step by step; the Tutorial button has a short clip for every tool |
-| **Retrains** | `ml/retrain.py` turns corrections saved in the editor into a fine-tuned model and scores it before and after on regions it never saw |
 
 ## Try it on your computer
 
@@ -62,34 +61,42 @@ Files are paired by name: `slide1_image.png` with `slide1_prob.tif` or `slide1_m
 Each region is a few nodes joined by curves (cubic Béziers fitted to the model's outline), so an outline is
 adjusted by moving a handful of points and not hundreds.
 
-## The model and retraining
+## Training data
 
-`ml/` holds the model behind the practice images and the retraining loop. It needs PyTorch, so it has its own
-environment; the editor's server does not use it.
+Export › **Training data** (off unless ticked) writes, for one image or a whole library:
+
+```
+training/
+  images/<name>.png        the image, as opened in the editor
+  masks/<name>.png         the corrected labels, same size: 0 = background, 1, 2… = the library's classes in order,
+                           then "region with no class"; 255 = Exclude (not annotated: a loss should ignore it)
+  model/<name>.png         the original mask before correction (1 = inside a region)
+  model/<name>_prob.png    the model's probability per pixel (0-255), when it gave one
+  dataset.json             label values, pixel size, and per image: corrected / accepted (marked done) / not
+                           reviewed, pixels changed, and each region's class, unsure flag and note
+  README.txt               the same, in a few lines
+```
+
+For a whole library only the images that were corrected or marked done are included; the rest are listed as
+skipped. Keeping "not annotated" (255) apart from "not this class" (0), and the model's own mask beside the
+correction, is what makes the set usable for retraining or for measuring how much experts had to fix.
+
+The editor does not retrain the model itself. An earlier experiment that did (a measured correction → retraining
+loop on BCSS) is kept at the git tag `retraining-loop-v1`.
+
+## The model
+
+`ml/` holds the model behind the practice images. It needs PyTorch, so it has its own environment; the editor's
+server does not use it.
 
 ```bash
 uv venv .venv-ml --python 3.12 --python-preference only-managed      # a Python build that includes lzma
 uv pip install --python .venv-ml/bin/python -r ml/requirements.txt
 .venv-ml/bin/python ml/fetch_bcss.py          # BCSS masks and the 64 regions used (1.4 GB) into data/bcss/
-.venv-ml/bin/python ml/loop.py                # the measured correction -> retraining loop (about 2 hours on an M-series Mac)
-.venv-ml/bin/python ml/report.py              # docs/retraining/: chart and results page
-.venv-ml/bin/python ml/predict.py --practice  # rebuild data/practice-bcss/ from the first model
+.venv-ml/bin/python ml/train.py               # the model, on 8 regions (a few minutes on an M-series Mac)
+.venv-ml/bin/python ml/predict.py --practice  # rebuild data/practice-bcss/ from it
+.venv-ml/bin/python ml/predict.py --mpp 0.5 new1.png new2.png   # its output on other images, to open in the editor
 ```
-
-**Retraining from your own corrections.** Correct images in the editor (they are saved as you go), then:
-
-```bash
-.venv-ml/bin/python ml/retrain.py --library practice                  # every corrected image of a library
-.venv-ml/bin/python ml/retrain.py --pairs exported/ --mpp 0.5         # or <name>_image.* + <name>_mask.png pairs
-.venv-ml/bin/python ml/predict.py --model models/retrained-*.pt --mpp 0.5 new1.png new2.png   # its output, to open in the editor
-```
-
-Regions with no class or the class Tumour train as tumour; regions of a class set to "leave out of measurements"
-(such as Exclude, for folds or pen marks) are ignored; everything else is other tissue. The practice images are
-themselves held-out test regions, so `retrain.py` recognises them by their pixels and leaves any corrected one out
-of its before-and-after score. To try the whole path without correcting by hand,
-`ml/simulate_corrections.py --data <a throw-away DATA_DIR> 2 3` saves the BCSS expert outlines as the corrections
-of practice images 2 and 3.
 
 **The model:** a U-Net with an ImageNet-pretrained ResNet-34 encoder (segmentation_models_pytorch), at 1 µm per
 pixel, tumour (BCSS tumour, DCIS, angioinvasion) against all other tissue, trained on 8 regions for the practice
@@ -178,8 +185,6 @@ Converter checks measured on 11 Nov 2026 on regions read back from the saved `.t
 | Shading of any colour, with the original image (`tests_overlay.py`: ten colours, three opacities) | mean IoU **0.985** |
 | Editor self-test (`viewer/editor/selftest.js`, 56 results through the real page, on the simulated practice set) | all pass, 17 Nov 2026 |
 | The model on 12 unseen BCSS test regions, trained on 8 (the practice images' model) | Dice **0.819** |
-| … after 5 rounds of 8 corrected regions (least confident first / random order, mean of 2 runs each) | Dice **0.853** / **0.856** ([details](docs/retraining/README.md)) |
-| … trained on all 52 at once, from scratch (reference) | Dice 0.855 |
 
 Known limits:
 
@@ -215,7 +220,7 @@ resized pictures, and needed thresholds tuned to these images.
 <details>
 <summary><b>Test data</b></summary>
 
-The practice images (`data/practice-bcss/`) come from BCSS; see "The model and retraining". What follows is the
+The practice images (`data/practice-bcss/`) come from BCSS; see "The model". What follows is the
 earlier, simulated test data, still used by the converter's checks and by `PRACTICE_SET=simulated`.
 
 - `prepare_tissue.py`: 11 breast H&E images from Wikimedia Commons, cropped to 2048 × 2048 (two exist only at
@@ -242,7 +247,7 @@ earlier, simulated test data, still used by the converter's checks and by `PRACT
 | `viewer/editor.html`, `viewer/editor/app.js`, `geom.js` | The editor page, the canvas app, the geometry (no DOM) |
 | `viewer/editor/tour.js`, `tutorial.js`, `tutorial/` | The first-visit tour, the Tutorial panel, its clips |
 | `tutorial/` | The recorder that makes the clips from the real editor (`tutorial/README.md`) |
-| `ml/` | The model: data, training, the measured retraining loop, prediction, retraining from corrections |
+| `ml/` | The model: data, training, prediction |
 | `data/practice-bcss/` | The practice images, the first model's output on them, and the BCSS expert outlines |
 | `viewer/editor/demo-spots.js`, `dev/make_spots.py` | Where the tour and the Tutorial recorder act on practice-01 |
 | `dev/browser/` | Headless-Chrome scripts that run the self-test and the tour |

@@ -885,6 +885,9 @@
       <div class="dest" ${st.hosted ? "hidden" : ""}><span>Save in</span><input type="text" class="path" id="exDest" value="${esc(tilde(dest, st.home))}" title="The folder to save in. Choose it, or type a path." spellcheck="false"><button class="btn" id="exChoose">Choose…</button></div>
       <div class="fmt-h">Files to write</div>
       <div class="fmts">${FORMATS.map(([k, label]) => `<label class="check"><input type="checkbox" name="exFmt" value="${k}" ${fmts.includes(k) ? "checked" : ""}> ${label}</label>`).join("")}</div>
+      <div class="fmt-h">For training a model</div>
+      <label class="check train-opt"><input type="checkbox" name="exFmt" value="training">
+        <span><b>Training data</b><span>The image, the corrected mask and the model's original mask, with a dataset.json that explains the label values. For a whole library, only images you corrected or marked done.</span></span></label>
       <div class="err" id="exErr"></div>
       <div class="actions"><button class="btn" id="exCancel">Cancel</button><button class="btn primary" id="exGo">Export</button></div>`;
     $("exportModal").classList.add("show");
@@ -917,11 +920,13 @@
       const iouText = (v, lead) => (v == null ? "" : ` ${lead} IoU <b class="mono">${v.toFixed(4)}</b>.`);
       if (scope === "library") {
         j = await api("/api/editor/library/export", { id: lib.id, dest, formats, job });
-        summary = `${j.images} image${j.images === 1 ? "" : "s"} exported from ${esc(lib.name)}: ${j.edited} edited, ${j.done} marked done.` + iouText(j.min_iou, "Lowest ImageJ read-back match:");
+        summary = `${j.images} image${j.images === 1 ? "" : "s"} exported from ${esc(lib.name)}: ${j.edited} edited, ${j.done} marked done.` + iouText(j.min_iou, "Lowest ImageJ read-back match:")
+          + (j.training ? ` Training data: <b>${j.training.images}</b> image${j.training.images === 1 ? "" : "s"}` + (j.training.skipped ? `, ${j.training.skipped} left out (not corrected or marked done).` : ".") : "");
       } else {
         const regions = S.regions.map((r) => ({ name: r.name, rings: r.paths.map((p) => G.flatten(p, 1).map((q) => [+q.x.toFixed(2), +q.y.toFixed(2)])) }));
         j = await api("/api/editor/export", { id: S.sid, regions, dest, formats, job });
-        summary = `${j.regions} region${j.regions === 1 ? "" : "s"} exported from ${esc(S.meta.name)}.` + iouText(j.imagej_iou, "The ImageJ file was read back and matches the mask at");
+        summary = `${j.regions} region${j.regions === 1 ? "" : "s"} exported from ${esc(S.meta.name)}.` + iouText(j.imagej_iou, "The ImageJ file was read back and matches the mask at")
+          + (j.training ? ` Training data written (${esc(j.training.status)}).` : "");
       }
       clearInterval(poll); setBar(1, 1);
       await new Promise((r) => setTimeout(r, 350));               // let the bar be seen full

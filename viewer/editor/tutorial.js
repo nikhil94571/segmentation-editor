@@ -85,9 +85,10 @@
       { id: "done", nav: "Done, next image", title: "Mark done and go to the next image",
         text: `Click <b>Done</b> (${k("D")}) when an image is finished. The arrows at the top left (or ${k("←")} and ${k("→")}) go to the previous and next image.`, clips: [["19-done-next", 1280, 760]] },
       { id: "export", nav: "Export", title: "Export",
-        text: hosted
+        text: (hosted
           ? `Click <b>Export</b>. Choose this image or all of them, and tick the file types you want (ImageJ, QuPath, plain masks). They download as one .zip.`
-          : `Click <b>Export</b>. Choose this image or the whole library, the folder to save in, and which files you want. The bar shows progress, and a button opens the folder when it is done.`,
+          : `Click <b>Export</b>. Choose this image or the whole library, the folder to save in, and which files you want. The bar shows progress, and a button opens the folder when it is done.`)
+          + ` Tick <b>Training data</b> to also get the image, your corrected mask and the model's original mask, pixel for pixel, ready for training the next model.`,
         clips: [[hosted ? "20-export-hosted" : "20-export", 980, 612]] },
     ] },
   ];

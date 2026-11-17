@@ -422,7 +422,8 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
     Writes PNGs + ImageJ + QuPath files to sessions/<id>/export/ and checks the ImageJ file reads back."""
     want = set(formats or FORMATS) & set(FORMATS)
     split = "holes_split" in (formats or ())        # an option, not a file type: holes as separate ImageJ polygons
-    if not want:
+    train = "training" in (formats or ())           # a training-data set, laid out on its own (see _write_training)
+    if not want and not train:
         raise ValueError("Choose at least one file type to export.")
     if job:
         _progress[job] = {"done": 0, "total": 1}
@@ -474,6 +475,13 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
         h2.write_qupath_geojson(out / f"{stem}_QuPath.geojson", geoms)
         files["qupath_geojson"] = f"{stem}_QuPath.geojson"
 
+    training = None
+    if train:
+        lib, idx = _find_case(sid)
+        entry = _write_training(sid, out / "training", stem, lib, lib["cases"][idx] if lib else None)
+        _write_dataset(out / "training", lib, [entry])
+        training = {"images": 1, "status": entry["status"]}
+
     iou = None                                                     # read an ImageJ file back from disk, if one was written
     check = files.get("imagej_tif") or files.get("roiset_zip")
     if check:
@@ -496,7 +504,130 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
         _progress[job] = {"done": 1, "total": 1}
     return {"dir": out.name if HOSTED else str(out), "download": download,
             "files": {k: f"/sessions/{sid}/export/{v}" for k, v in files.items()},
-            "regions": len(regions), "mask_px": int(mask.sum()), "imagej_iou": iou}
+            "regions": len(regions), "mask_px": int(mask.sum()), "imagej_iou": iou, "training": training}
+
+
+# ---------- training data ----------
+# The image, the expert's corrected label mask and the model's original mask, pixel for pixel, plus a dataset.json
+# that says what every label value means. Nothing here trains anything: it is the data a training pipeline needs.
+
+def _find_case(sid):
+    """The library (and index) a session belongs to, or (None, None)."""
+    if libs().exists():
+        for p in sorted(libs().glob("*/library.json")):
+            lib = json.loads(p.read_text())
+            for i, c in enumerate(lib["cases"]):
+                if c.get("sid") == sid:
+                    return lib, i
+    return None, None
+
+
+def _label_values(classes):
+    """Class id -> mask value: the classes in order from 1, then 'region with no class'; classes that are left
+    out of measurements (Exclude) -> 255, the usual 'ignore' value (a loss skips those pixels)."""
+    vals, k = {}, 1
+    for c in classes:
+        if c.get("exclude"):
+            vals[c["id"]] = 255
+        else:
+            vals[c["id"]] = k
+            k += 1
+    vals[None] = k
+    return vals
+
+
+def _paint(shape, regions, vals):
+    """regions: [(class id or None, [ring, ...])] -> uint8 label mask. Holes are even-odd within a region; a later
+    region wins where two overlap, and ignore areas are painted last, so they always win."""
+    y = np.zeros(shape, np.uint8)
+    for ignore_pass in (False, True):
+        for cls, rings in regions:
+            v = vals.get(cls, vals[None])
+            if (v == 255) != ignore_pass:
+                continue
+            m = np.zeros(shape, bool)
+            for r in rings:
+                if len(r) >= 3:
+                    m ^= _fill(np.asarray(r, float), shape)
+            y[m] = v
+    return y
+
+
+def _write_training(sid, root, stem, lib, case):
+    """One image's training example -> root/{images,masks,model}/<stem>.png; returns its dataset.json entry."""
+    d = _sdir(sid)
+    meta = json.loads((d / "meta.json").read_text())
+    vals = _label_values(_classes(lib or {}))
+    for sub in ("images", "masks", "model"):
+        (root / sub).mkdir(parents=True, exist_ok=True)
+    base = Image.open(d / "tissue.png").convert("RGB")
+    shape = (base.height, base.width)
+    base.save(root / "images" / f"{stem}.png")
+    edited = (d / "state.json").exists()
+    if edited:
+        state = json.loads((d / "state.json").read_text())
+        regs = [(r.get("cls"), rings) for r, rings in zip(state["regions"], _state_rings(state))]
+        info = [{"name": r["name"], "class": r.get("cls"), "value": int(vals.get(r.get("cls"), vals[None])),
+                 "changed": bool(r.get("edited")), "added": r.get("source") == "drawn",
+                 **({"unsure": True} if r.get("unsure") else {}), **({"note": r["note"]} if r.get("note") else {})}
+                for r in state["regions"]]
+    else:
+        regs = [(None, r["rings"]) for r in meta["regions"]]
+        info = [{"name": r["name"], "class": None, "value": int(vals[None]), "changed": False, "added": False}
+                for r in meta["regions"]]
+    y = _paint(shape, regs, vals)
+    Image.fromarray(y, "L").save(root / "masks" / f"{stem}.png")
+    # what the model (or the imported file) said before anyone corrected it: 1 = inside a region
+    before = _paint(shape, [(None, r["rings"]) for r in meta["regions"]], {None: 1})
+    Image.fromarray(before, "L").save(root / "model" / f"{stem}.png")
+    files = {"image": f"images/{stem}.png", "mask": f"masks/{stem}.png", "model_mask": f"model/{stem}.png"}
+    if meta.get("has_prob") and (d / "score.npy").exists():   # the model's own probabilities, 0-255
+        p = np.load(d / "score.npy")
+        Image.fromarray((np.clip(p, 0, 1) * 255).round().astype(np.uint8), "L").save(root / "model" / f"{stem}_prob.png")
+        files["model_probability"] = f"model/{stem}_prob.png"
+    done = bool(case and case.get("done"))
+    after = (y > 0) & (y != 255)
+    known = y != 255
+    changed = int(((before > 0) != after)[known].sum())
+    return {"name": meta["name"], "stem": stem, **files, "width": shape[1], "height": shape[0],
+            "status": "corrected" if edited else "accepted" if done else "not reviewed",
+            "marked_done": done, "imported_as": meta.get("route"),
+            "pixels_changed": changed, "pixels_changed_pct": round(100 * changed / max(1, int(known.sum())), 3),
+            "regions": info}
+
+
+def _write_dataset(root, lib, entries, skipped=()):
+    """dataset.json and README.txt for a training set."""
+    classes = _classes(lib or {})
+    vals = _label_values(classes)
+    labels = [{"value": 0, "name": "Background", "meaning": "not inside any region"}]
+    labels += [{"value": vals[c["id"]], "class": c["id"], "name": c["name"]} for c in classes if not c.get("exclude")]
+    labels += [{"value": vals[None], "class": None, "name": "Region with no class",
+                "meaning": "inside a region the expert did not give a class"}]
+    ign = [c["name"] for c in classes if c.get("exclude")]
+    if ign:
+        labels += [{"value": 255, "classes": ign, "name": "Ignore",
+                    "meaning": "marked " + " / ".join(ign) + ": not annotated, leave out of training and scoring"}]
+    ds = {"format": "segmentation-editor training set, version 1",
+          "created": time.strftime("%Y-%m-%d %H:%M:%S"),
+          "library": (lib or {}).get("name"), "pixel_size_um": (lib or {}).get("pixel_um"),
+          "labels": labels, "ignore_value": 255,
+          "images": entries, "skipped": list(skipped)}
+    root.mkdir(parents=True, exist_ok=True)
+    (root / "dataset.json").write_text(json.dumps(ds, indent=1))
+    lines = ["Training data exported from the segmentation editor.", "",
+             "images/<name>.png         the image, as it was opened in the editor",
+             "masks/<name>.png          the corrected labels, same size as the image, one value per pixel:"]
+    lines += [f"                            {lab['value']:>3} = {lab['name']}" for lab in labels]
+    lines += ["model/<name>.png          the original mask before correction (1 = inside a region), same size",
+              "model/<name>_prob.png     the model's probability for each pixel (0-255), when the model gave one",
+              "dataset.json              the label values, pixel size, and for each image: whether it was corrected,",
+              "                          accepted as it was (marked done) or not reviewed, how many pixels changed,",
+              "                          and its regions with class, unsure flag and note.", "",
+              "Only images that were corrected or marked done are included when a whole library is exported;",
+              "the others are listed under \"skipped\" in dataset.json.",
+              "Where regions overlap, the later one in the region list wins; ignore areas always win."]
+    (root / "README.txt").write_text("\n".join(lines) + "\n")
 
 
 # ---------- libraries ----------
@@ -1008,11 +1139,13 @@ def export_library(lid, dest=None, formats=None, job=None):
                "qupath_geojson": "qupath"}
     want = [f for f in FORMATS if f in set(formats or FORMATS)]
     opts = [f for f in (formats or ()) if f == "holes_split"]
-    if not want:
+    train = "training" in (formats or ())
+    if not want and not train:
         raise ValueError("Choose at least one file type to export.")
     for key in want:
         (out / folders[key]).mkdir(parents=True, exist_ok=True)
-    rows = []
+    out.mkdir(parents=True, exist_ok=True)
+    rows, entries, skipped = [], [], []
     if job:
         _progress[job] = {"done": 0, "total": len(lib["cases"])}
     for i, c in enumerate(lib["cases"]):
@@ -1026,7 +1159,13 @@ def export_library(lid, dest=None, formats=None, job=None):
         else:
             regions = [{"name": r["name"], "rings": r["rings"]} for r in json.loads((sd / "meta.json").read_text())["regions"]]
         stem = f"{i + 1:03d}_{_slug(c['name'])}"
-        r = export(sid, regions, stem, formats=want + opts)
+        r = export(sid, regions, stem, formats=want + opts) if want else {"files": {}, "regions": len(regions), "imagej_iou": None,
+                                                                          "mask_px": None}
+        if train:                                               # only what an expert has looked at is training data
+            if edited or c.get("done"):
+                entries.append(_write_training(sid, out / "training", stem, lib, c))
+            else:
+                skipped.append({"name": c["name"], "reason": "not corrected or marked done"})
         if job:
             _progress[job] = {"done": i + 1, "total": len(lib["cases"])}
         for key, url in r["files"].items():
@@ -1039,13 +1178,16 @@ def export_library(lid, dest=None, formats=None, job=None):
         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
         w.writeheader()
         w.writerows(rows)
+    if train:
+        _write_dataset(out / "training", lib, entries, skipped)
     if HOSTED:                                                   # the per-image working copies are not needed again
         for c in _read_lib(lid)["cases"]:
             if c.get("sid"):
                 shutil.rmtree(_sdir(c["sid"]) / "export", ignore_errors=True)
     return {"dir": out.name if HOSTED else str(out), "download": _zip(out) if HOSTED else None, "images": len(rows),
             "done": sum(r["done"] == "yes" for r in rows), "edited": sum(r["edited"] == "yes" for r in rows),
-            "min_iou": min((r["imagej_iou"] for r in rows if r["imagej_iou"] is not None), default=None)}
+            "min_iou": min((r["imagej_iou"] for r in rows if r["imagej_iou"] is not None), default=None),
+            "training": {"images": len(entries), "skipped": len(skipped)} if train else None}
 
 
 # ---------- hosted housekeeping ----------

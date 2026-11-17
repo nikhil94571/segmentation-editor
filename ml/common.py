@@ -63,7 +63,7 @@ def load_roi(name, mpp=MODEL_MPP):
 
 def splits(seed=7):
     """Fixed split of the 64 downloaded regions (each from a different patient, checked below): 12 test, 8 to train
-    the first model, 44 in the pool that experts correct, round by round."""
+    the first model, and 44 not used yet."""
     names = [n for n in (ROOT / "ml" / "bcss_picked.txt").read_text().split() if n]
     names = sorted(names)
     assert len({n[:12] for n in names}) == len(names), "two regions from one patient: the split would leak"

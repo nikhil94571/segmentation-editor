@@ -1,6 +1,6 @@
 """Run a trained model on tissue images and write files the editor opens: <name>_image.jpg and <name>_prob.png.
 
-  .venv-ml/bin/python ml/predict.py --model models/loop/v1-base.pt --mpp 0.5 --out out/predicted  slide1.png slide2.png
+  .venv-ml/bin/python ml/predict.py --model models/base.pt --mpp 0.5 --out out/predicted  slide1.png slide2.png
   .venv-ml/bin/python ml/predict.py --practice      # rebuild data/practice-bcss/ (the editor's practice images)
 
 --mpp is the images' micrometres per pixel; the model works at 1.0 and its map is resized back to the image.
@@ -71,7 +71,7 @@ def practice(model_path, n=6):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("images", nargs="*")
-    ap.add_argument("--model", default=str(C.ROOT / "models" / "loop" / "v1-base.pt"))
+    ap.add_argument("--model", default=str(C.ROOT / "models" / "base.pt"))
     ap.add_argument("--mpp", type=float, default=0.5, help="micrometres per pixel of the input images")
     ap.add_argument("--out", default=str(C.ROOT / "out" / "predicted"))
     ap.add_argument("--practice", action="store_true")
