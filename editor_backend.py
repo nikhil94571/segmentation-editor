@@ -533,14 +533,17 @@ def export(sid, regions, stem=None, dest=None, formats=None, job=None, deliver=F
         # again at that size (not the small mask enlarged), so the edges stay smooth
         W0, H0 = int(full["width"]), int(full["height"])
         sx, sy = W0 / shape[1], H0 / shape[0]
-        big = np.zeros((H0, W0), bool)
+        # drawn straight onto one full-size 8-bit image with PIL (outlines filled, holes cut out), so a 7040 x 5842
+        # mask needs about two copies of 41 MB and a fraction of a second, even on a small server
+        from PIL import ImageDraw
+        big = Image.new("L", (W0, H0), 0)
+        draw = ImageDraw.Draw(big)
         for reg in regions:
-            m = np.zeros((H0, W0), bool)
-            for r in reg["rings"]:
-                if len(r) >= 3:
-                    m ^= _fill(np.asarray(r, float) * [sx, sy], (H0, W0))
-            big |= m
-        tifffile.imwrite(out / f"{src}_corrected_mask.tif", (big * 255).astype(np.uint8), photometric="minisblack")
+            rings = [np.asarray(r, float) for r in reg["rings"] if len(r) >= 3]
+            depth = _depths(rings) if len(rings) > 1 else [0] * len(rings)
+            for k in sorted(range(len(rings)), key=lambda k: depth[k]):       # outer first, then holes, then islands
+                draw.polygon([(x * sx - 0.5, y * sy - 0.5) for x, y in rings[k]], fill=0 if depth[k] % 2 else 255)
+        tifffile.imwrite(out / f"{src}_corrected_mask.tif", np.asarray(big, np.uint8), photometric="minisblack")
         files["corrected_mask_full_tif"] = f"{src}_corrected_mask.tif"
     if "mask_png" in want:
         Image.fromarray((mask * 255).astype(np.uint8)).save(out / f"{stem}_mask.png")
@@ -680,7 +683,7 @@ _PICTURE_EXT = (".png", ".jpg", ".jpeg", ".bmp", ".tif", ".tiff")
 def _tinted(rgb):
     """Share of strongly green-to-blue pixels: near 0 for H&E and similar stains, high for heatmaps and for
     pictures shaded cyan or blue."""
-    small = np.asarray(Image.fromarray(rgb).convert("HSV").resize((96, 96)), float)
+    small = np.asarray(Image.fromarray(rgb).resize((96, 96), Image.BILINEAR).convert("HSV"), float)   # shrink first: cheap
     hue, sat = small[..., 0] * 360 / 255, small[..., 1] / 255
     return float(((hue > 70) & (hue < 215) & (sat > 0.25)).mean())
 
@@ -808,7 +811,8 @@ def _bundle_choice(root, items, src, why, image=None, options=None):
             s += 1
         if _DERIVED.search(p["path"].stem):
             s -= 3
-        s -= 6 * _tinted(_rgb(p["path"]))                         # heatmaps and shaded pictures
+        if p["shape"] == target:                                  # heatmaps and shaded pictures (only pictures of the model's
+            s -= 6 * _tinted(_rgb(p["path"]))                     # size are looked at: a large original is never decoded here)
         return s
 
     if src["kind"] == "picture" and image is None:
