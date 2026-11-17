@@ -3,6 +3,8 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
+# Node runs the editor's own curve fitting (viewer/editor/fit_cli.js) so library exports match the screen
+RUN apt-get update && apt-get install -y --no-install-recommends nodejs && rm -rf /var/lib/apt/lists/*
 COPY *.py ./
 COPY viewer ./viewer
 COPY data/tissue_2k ./data/tissue_2k

@@ -1602,6 +1602,21 @@ def set_done(lid, index, done):
     return {"ok": True, "done": bool(done)}
 
 
+def _display_regions(sid):
+    """An unedited image's regions as the editor draws them (its curves are fitted in the page and not stored):
+    the page's own code, geom.js, run with Node (viewer/editor/fit_cli.js), so the export matches the screen.
+    Without Node, the outline the curves are fitted to (within the fitting tolerance of the screen)."""
+    import subprocess
+    meta_path = _sdir(sid) / "meta.json"
+    try:
+        r = subprocess.run(["node", str(ROOT / "viewer" / "editor" / "fit_cli.js"), str(meta_path)],
+                           capture_output=True, text=True, timeout=120, check=True)
+        return json.loads(r.stdout)
+    except (OSError, subprocess.SubprocessError, ValueError) as e:
+        print("fit_cli.js not used:", e, flush=True)
+        return [{"name": r["name"], "rings": r["rings"]} for r in json.loads(meta_path.read_text())["regions"]]
+
+
 def export_library(lid, dest=None, formats=None, job=None):
     """Export every image of a library as it stands (saved edits, else the imported regions) into
     exports/<library>-<time>/, sorted by file type, with a summary.csv and a .zip of the lot."""
@@ -1634,7 +1649,7 @@ def export_library(lid, dest=None, formats=None, job=None):
             regions = [{"name": r["name"], "rings": [x.tolist() for x in rings]}
                        for r, rings in zip(state["regions"], _state_rings(state))]
         else:
-            regions = [{"name": r["name"], "rings": r["rings"]} for r in json.loads((sd / "meta.json").read_text())["regions"]]
+            regions = _display_regions(sid)
         stem = f"{i + 1:03d}_{_slug(c['name'])}"
         r = export(sid, regions, stem, formats=want + opts, tick=lambda f, i=i: at(i + 0.25 + 0.75 * f))
         if job:
